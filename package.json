@@ -1,0 +1,23 @@
+{
+  "name": "competitive-report-studio",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node --experimental-strip-types ./apps/api/src/index.ts",
+    "dev:api": "node --experimental-strip-types ./apps/api/src/index.ts",
+    "dev:web": "npm run dev --workspace @studio/web",
+    "dev:bridge": "npm run dev --workspace @studio/skill-bridge",
+    "start:api": "node --experimental-strip-types ./apps/api/src/index.ts",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0"
+  }
+}
