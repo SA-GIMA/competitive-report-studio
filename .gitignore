@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+.npm/
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+
+# Local configuration & Secrets
+.env
+.env.local
+.env.*.local
+*.log
+
+# Project specific storage (Excluding generated reports/charts/state)
+storage/reports/
+storage/charts/
+storage/app-state/
+storage/materials/
+storage/templates/*.docx
+!storage/templates/demo-upload.docx
+
+# OS files
+.DS_Store
+Thumbs.db

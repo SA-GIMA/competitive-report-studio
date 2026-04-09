@@ -1,0 +1,28 @@
+{
+  "name": "@studio/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-strip-types src/index.ts",
+    "start": "node --experimental-strip-types src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "lint": "echo 'lint placeholder for api'",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@studio/charting": "0.1.0",
+    "@studio/config": "0.1.0",
+    "@studio/docx-engine": "0.1.0",
+    "@studio/orchestrator": "0.1.0",
+    "@studio/providers": "0.1.0",
+    "@studio/retrieval": "0.1.0",
+    "@studio/shared": "0.1.0",
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
