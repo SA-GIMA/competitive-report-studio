@@ -47,6 +47,14 @@ export interface ProgressEvent {
   progressPercent: number;
 }
 
+interface SectionMemory {
+  sectionId: string;
+  title: string;
+  summary: string;
+  keyPoints: string[];
+  chartTitles: string[];
+}
+
 export class CompetitiveAnalysisPipeline {
   private readonly deps: PipelineDependencies;
 
@@ -776,6 +784,7 @@ export class CompetitiveAnalysisPipeline {
         });
         continue;
       }
+      const previousSections = buildSectionMemories(sections, charts);
       const sectionJson = await this.deps.providerResolver(modelId).generateText(config, {
         systemPrompt: reportWritingSystemPrompt,
         userPrompt: JSON.stringify({
@@ -784,6 +793,7 @@ export class CompetitiveAnalysisPipeline {
           parseResult,
           competitors,
           charts,
+          previousSections,
           sourceCount: sources.length,
           minimumBodyLength: 500,
           evidenceSnippets: buildSectionEvidence(spec.sectionId, competitors, sources).slice(0, 16),
@@ -810,6 +820,7 @@ export class CompetitiveAnalysisPipeline {
           sectionDraft: completedSection,
           competitors,
           charts,
+          previousSections,
           minimumBodyLength: 500,
           evidenceSnippets: buildSectionEvidence(spec.sectionId, competitors, sources).slice(0, 16)
         }),
@@ -874,16 +885,52 @@ export class CompetitiveAnalysisPipeline {
 }
 
 const attachSectionCharts = (section: ReportSectionDraft, charts: ChartSpec[]): ReportSectionDraft => {
-  if (section.chartIds?.length) {
-    return section;
+  const allowedChartIds = getAllowedChartIdsForSection(section.sectionId, charts);
+  const sanitizedChartIds = (section.chartIds ?? []).filter((chartId) =>
+    allowedChartIds.includes(chartId)
+  );
+
+  if (sanitizedChartIds.length > 0) {
+    return { ...section, chartIds: sanitizedChartIds };
   }
 
-  if (section.sectionId === "feature_comparison") {
-    return { ...section, chartIds: charts.map((chart) => chart.id) };
+  if (allowedChartIds.length > 0) {
+    return { ...section, chartIds: allowedChartIds };
   }
 
-  return section;
+  return { ...section, chartIds: undefined };
 };
+
+const getAllowedChartIdsForSection = (sectionId: string, charts: ChartSpec[]) => {
+  if (sectionId === "feature_comparison") {
+    return charts.map((chart) => chart.id);
+  }
+
+  return [];
+};
+
+const buildSectionMemories = (
+  sections: ReportSectionDraft[],
+  charts: ChartSpec[]
+): SectionMemory[] =>
+  sections.map((section) => ({
+    sectionId: section.sectionId,
+    title: section.title,
+    summary: section.summary,
+    keyPoints: extractSectionKeyPoints(section.bodyMarkdown),
+    chartTitles: (section.chartIds ?? [])
+      .map((chartId) => charts.find((chart) => chart.id === chartId)?.title)
+      .filter((title): title is string => Boolean(title))
+  }));
+
+const extractSectionKeyPoints = (bodyMarkdown: string) =>
+  bodyMarkdown
+    .replace(/\r\n/g, "\n")
+    .split(/\n+/)
+    .map((line) => cleanupListLikeLine(line.replace(/\s+/g, " ").trim()))
+    .filter(Boolean)
+    .slice(0, 4)
+    .map((line) => truncateText(line, 110));
 
 const buildSectionEvidence = (
   sectionId: string,

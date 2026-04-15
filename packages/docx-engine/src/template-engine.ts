@@ -174,7 +174,7 @@ export class WordTemplateEngine {
   private buildAppendixParagraphs(sources: SourceCitation[]) {
     return this.buildSourceAppendix(sources).map(
       (entry) =>
-        buildBodyParagraph(`${entry.index}. ${entry.line}`, { after: 120 })
+        buildBodyParagraph(`${entry.index}. ${entry.line}`, { after: 120, firstLine: 0 })
     );
   }
 
