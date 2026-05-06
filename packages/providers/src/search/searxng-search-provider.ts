@@ -1,10 +1,13 @@
 import type { SearchDocument, SearchQuery } from "@studio/shared";
 import type { SearchProvider } from "./types.ts";
+import { assertSafeHttpUrl } from "../url-security.ts";
 
 interface SearxngSearchProviderOptions {
   endpoint: string;
   apiKey?: string;
   defaultLanguage?: string;
+  engines?: string[];
+  allowPrivateEndpoint?: boolean;
 }
 
 interface SearxngResponse {
@@ -27,11 +30,28 @@ export class SearxngSearchProvider implements SearchProvider {
   }
 
   async search(query: SearchQuery): Promise<SearchDocument[]> {
-    const url = new URL(this.options.endpoint);
+    const primary = await this.searchOnce(query, this.options.engines);
+    if (primary.length > 0 || !this.options.engines || this.options.engines.length === 0) {
+      return primary;
+    }
+    return this.searchOnce(query, undefined);
+  }
+
+  private async searchOnce(
+    query: SearchQuery,
+    engines?: string[]
+  ): Promise<SearchDocument[]> {
+    const url = await assertSafeHttpUrl(this.options.endpoint, {
+      allowPrivate: this.options.allowPrivateEndpoint
+    });
     url.searchParams.set("q", query.keyword);
     url.searchParams.set("format", "json");
     url.searchParams.set("language", this.options.defaultLanguage ?? "zh-CN");
-    url.searchParams.set("categories", "general,news");
+    if (engines && engines.length > 0) {
+      url.searchParams.set("engines", engines.join(","));
+    } else {
+      url.searchParams.set("categories", "general,news");
+    }
     url.searchParams.set("safesearch", "0");
 
     const timeRange = mapTimeRange(query.timeRange);

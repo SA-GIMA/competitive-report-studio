@@ -1,10 +1,12 @@
 import type { SearchDocument, SearchQuery } from "@studio/shared";
 import type { SearchProvider } from "./types.ts";
+import { assertSafeHttpUrl } from "../url-security.ts";
 
 interface SkillBridgeSearchProviderOptions {
   endpoint: string;
   apiKey?: string;
   defaultLanguage?: string;
+  allowPrivateEndpoint?: boolean;
 }
 
 export class SkillBridgeSearchProvider implements SearchProvider {
@@ -16,7 +18,10 @@ export class SkillBridgeSearchProvider implements SearchProvider {
   }
 
   async search(query: SearchQuery): Promise<SearchDocument[]> {
-    const response = await fetch(this.options.endpoint, {
+    const endpoint = await assertSafeHttpUrl(this.options.endpoint, {
+      allowPrivate: this.options.allowPrivateEndpoint
+    });
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

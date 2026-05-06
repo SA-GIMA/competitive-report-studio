@@ -15,6 +15,14 @@ export class DemoLlmProvider implements LlmProvider {
     return { ok: true, message: "Demo 模型可用" };
   }
 
+  async listAvailableModels(config: ModelConnectionConfig) {
+    return {
+      ok: true,
+      message: "Demo Provider 仅提供当前示例模型",
+      models: [config.model || "demo-model"]
+    };
+  }
+
   async generateText(_config: ModelConnectionConfig, input: { systemPrompt: string; userPrompt: string }) {
     if (input.systemPrompt.includes("任务规划器")) {
       return JSON.stringify(parseDemoRequirement(input.userPrompt));
@@ -166,6 +174,74 @@ export class DemoLlmProvider implements LlmProvider {
       return JSON.stringify(buildLongDemoReport(payload));
     }
 
+    if (input.systemPrompt.includes("图表数据补全助手")) {
+      const payload = JSON.parse(input.userPrompt) as {
+        specs: Array<{
+          id: string;
+          labels: string[];
+          type: string;
+          series: Array<{ name: string; data: Array<number | string> }>;
+        }>;
+        competitors: Array<{
+          name: string;
+          coreFeatures: string[];
+          businessModel: string[];
+          channelStrategy: string[];
+          differentiators: string[];
+        }>;
+      };
+      return JSON.stringify({
+        items: payload.specs.map((spec) => {
+          if (spec.type === "comparison_table") {
+            return {
+              id: spec.id,
+              series: spec.series,
+              inferenceNotes: ["基于 demo 竞品画像与行业经验生成展示型表格"]
+            };
+          }
+
+          if (spec.type === "line") {
+            return {
+              id: spec.id,
+              series: payload.competitors.slice(0, 4).map((competitor, index) => ({
+                name: competitor.name,
+                data: [
+                  Math.max(competitor.coreFeatures.length, 3 + index),
+                  Math.max(competitor.businessModel.length, 2 + (index % 3)),
+                  Math.max(competitor.channelStrategy.length, 3 + ((index + 1) % 3)),
+                  Math.max(competitor.differentiators.length, 2 + ((index + 2) % 3))
+                ]
+              })),
+              inferenceNotes: ["基于 demo 竞品画像进行保守补全，保证维度差异可视化"]
+            };
+          }
+
+          const baseSeries = spec.series[0];
+          return {
+            id: spec.id,
+            series: baseSeries
+              ? [
+                  {
+                    ...baseSeries,
+                    data: payload.competitors.map((competitor, index) =>
+                      Math.max(
+                        competitor.coreFeatures.length +
+                          competitor.channelStrategy.length +
+                          competitor.businessModel.length +
+                          competitor.differentiators.length +
+                          index,
+                        3 + index
+                      )
+                    )
+                  }
+                ]
+              : spec.series,
+            inferenceNotes: ["基于 demo 竞品画像和相对强弱关系进行保守补全"]
+          };
+        })
+      });
+    }
+
     if (input.systemPrompt.includes("执行摘要")) {
       const payload = JSON.parse(input.userPrompt) as {
         parseResult: { track: string; region: string };
@@ -234,6 +310,8 @@ const defaultRouting: ModelRoutingConfig = {
   writerModelId: "demo-writer"
 };
 
+const REDACTED_SECRET = "********";
+
 export class ModelService {
   private readonly store = new ModelStateStore(
     join(process.cwd(), getAppConfig().storage.appStateDir, "models.json")
@@ -267,6 +345,17 @@ export class ModelService {
     return Array.from(this.configs.values());
   }
 
+  listPublic() {
+    return this.list().map((model) => this.toPublicModel(model));
+  }
+
+  toPublicModel(model: ModelConnectionConfig): ModelConnectionConfig {
+    return {
+      ...model,
+      apiKeyRef: redactSecret(model.apiKeyRef)
+    };
+  }
+
   getRouting(): ModelRoutingConfig {
     return this.routing;
   }
@@ -295,7 +384,11 @@ export class ModelService {
     }
     const next = {
       ...current,
-      ...patch
+      ...patch,
+      apiKeyRef:
+        patch.apiKeyRef === undefined || patch.apiKeyRef === REDACTED_SECRET
+          ? current.apiKeyRef
+          : patch.apiKeyRef
     };
     this.configs.set(modelId, next);
     this.routing = this.resolveRoutingWithRealWriter(this.routing);
@@ -334,6 +427,21 @@ export class ModelService {
     return this.providers[config.provider].healthCheck(config);
   }
 
+  async discoverAvailableModels(config: ModelConnectionConfig) {
+    const provider = this.providers[config.provider];
+    if (!provider) {
+      throw new Error(`不支持的 Provider: ${config.provider}`);
+    }
+    if (!provider.listAvailableModels) {
+      return {
+        ok: false,
+        message: `当前 Provider 暂不支持自动发现模型列表: ${config.provider}`,
+        models: []
+      };
+    }
+    return provider.listAvailableModels(config);
+  }
+
   remove(modelId: string) {
     if (!this.configs.has(modelId)) {
       throw new Error(`模型不存在: ${modelId}`);
@@ -355,7 +463,7 @@ export class ModelService {
     this.routing = defaultRouting;
     this.persist();
     return {
-      items: this.list(),
+      items: this.listPublic(),
       routing: this.routing,
       effectiveRouting: this.getEffectiveRouting()
     };
@@ -391,6 +499,13 @@ export class ModelService {
     });
   }
 }
+
+const redactSecret = (value: string) => {
+  if (!value || /^\$\{.+\}$/.test(value) || value === "demo") {
+    return value;
+  }
+  return REDACTED_SECRET;
+};
 
 const getDemoPreset = (name: string) => {
   if (name.includes("钉钉")) {

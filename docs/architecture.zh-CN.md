@@ -1,4 +1,6 @@
-# 自动生成竞品分析报告系统设计
+# Competitive Report Studio 架构说明
+
+本文档描述的是当前仓库的实际实现方向，而不是最早期的纯设计草稿。当前系统已从单一“自动生成竞品分析报告”扩展为一个以竞品分析为主、甘特图为辅的智能工作台。
 
 ## 1. 产品功能清单
 
@@ -21,13 +23,21 @@
 - 支持官网、行业媒体、新闻、应用商店、用户评价、公开报告等来源。
 - 支持按时间范围筛选、可信度排序、去重去噪。
 - 每条来源保留标题、URL、抓取时间、摘要，便于报告溯源。
+- 支持 `Search API`、`SerpAPI(Baidu)`、`Skill Bridge`、内置或外部 `SearXNG`。
+- 内置 `SearXNG` 支持本地安装、启动、停止、状态检测与检索测试。
 
-### 1.4 竞品发现与结构化抽取
+### 1.4 智能甘特图
+
+- 输入项目目标、工期、开始时间或截止时间，自动生成可编辑排期。
+- 支持正排、倒排、双休、单休、自然日。
+- 支持历史记录与保存修改。
+
+### 1.5 竞品发现与结构化抽取
 
 - 自动发现候选竞品，并支持分层为直接竞品、间接竞品、替代型竞品。
 - 抽取统一字段：定位、用户、功能、价格、商业模式、渠道、优势、劣势、风险等。
 
-### 1.5 图表与 Word 报告
+### 1.6 图表与 Word 报告
 
 - 根据结构化数据生成饼图、柱状图、折线图、四象限图、对比表格。
 - 支持图表主题配置和模板中的图表占位符。
@@ -41,9 +51,11 @@ flowchart LR
   UI["Web 前端"] --> API["API 网关 / 后端服务"]
   API --> Task["任务管理"]
   API --> Model["模型管理"]
+  API --> Gantt["甘特图管理"]
   API --> Template["模板管理"]
   API --> Pipeline["分析流水线编排"]
   Pipeline --> Search["中文检索模块"]
+  Search --> Searxng["内置 / 外部 SearXNG"]
   Pipeline --> Extract["结构化抽取模块"]
   Pipeline --> Chart["图表生成模块"]
   Pipeline --> Writer["报告写作模块"]
@@ -57,7 +69,7 @@ flowchart LR
 ### 2.1 前端
 
 - `设置页`
-  - 管理模型供应商、模型路由、API 连接测试
+  - 按“模型接入设置、模型路由设置、网络与访问、检索配置”分区管理模型、路由、局域网访问、CORS 和检索服务。
 - `任务创建页`
   - 输入自然语言需求、确认解析结果、确认候选竞品
 - `模板管理页`
@@ -73,6 +85,10 @@ flowchart LR
   - Word 模板元数据、章节配置、占位符绑定
 - `TaskService`
   - 任务生命周期、状态流转、重试
+- `NetworkAccessConfigService`
+  - 网络访问配置、CORS 来源判断、本机局域网 IP 枚举
+- `GanttService`
+  - 甘特图计划生成、编辑保存和历史记录
 - `PipelineService`
   - 串联检索、抽取、图表、写作、导出
 - `ReportService`
@@ -83,7 +99,7 @@ flowchart LR
 - `LlmProvider`
   - 统一封装 OpenAI 兼容接口和其他模型供应商
 - `SearchProvider`
-  - 统一封装 SearxNG、SerpAPI、Bing、自研爬虫或 Skill 输出
+  - 统一封装内置 / 外部 `SearXNG`、`SerpAPI(Baidu)`、`Search API` 或 `Skill Bridge`
 
 ### 2.4 核心引擎
 
@@ -98,7 +114,7 @@ flowchart LR
 
 核心数据结构已放在：
 
-- [packages/shared/src/types.ts](/Users/sagima/competitive-report-studio/packages/shared/src/types.ts)
+- [packages/shared/src/types.ts](../packages/shared/src/types.ts)
 
 重点对象包括：
 
@@ -127,20 +143,20 @@ flowchart LR
 
 页面骨架已放在：
 
-- [apps/web/src/app/page.tsx](/Users/sagima/competitive-report-studio/apps/web/src/app/page.tsx)
-- [apps/web/src/app/tasks/new/page.tsx](/Users/sagima/competitive-report-studio/apps/web/src/app/tasks/new/page.tsx)
-- [apps/web/src/app/templates/page.tsx](/Users/sagima/competitive-report-studio/apps/web/src/app/templates/page.tsx)
-- [apps/web/src/app/settings/page.tsx](/Users/sagima/competitive-report-studio/apps/web/src/app/settings/page.tsx)
-- [apps/web/src/app/reports/[id]/page.tsx](/Users/sagima/competitive-report-studio/apps/web/src/app/reports/[id]/page.tsx)
+- [DashboardView.vue](../apps/web-vue/src/views/DashboardView.vue)
+- [TaskCreateView.vue](../apps/web-vue/src/views/TaskCreateView.vue)
+- [TemplateView.vue](../apps/web-vue/src/views/TemplateView.vue)
+- [SettingsView.vue](../apps/web-vue/src/views/SettingsView.vue)
+- [ReportView.vue](../apps/web-vue/src/views/ReportView.vue)
 
-建议交互如下：
+当前页面能力与建议交互如下：
 
 - 任务创建页采用左右双栏。
   - 左侧输入自然语言和任务参数。
   - 右侧展示解析结果和候选竞品。
 - 模板管理页突出章节排序和占位符绑定。
-- 报告预览页分为章节预览、图表预览、来源预览和生成记录四块。
-- 设置页区分“模型连接管理”和“模型路由策略”。
+- 任务详情页负责查看解析结果、候选竞品、报告产物和运行快照。
+- 设置页区分“模型接入设置”“模型路由设置”“网络与访问”“检索配置”，其中网络分区会展示当前本机真实局域网访问地址，SearXNG 已支持运行状态检测与检索测试。
 
 ## 5. 核心流程设计
 
@@ -182,7 +198,7 @@ sequenceDiagram
 - `failed`
 - `completed`
 
-建议在每个阶段持久化中间产物，支持断点续跑：
+当前实现已经对以下中间结果做本地持久化，支持服务重启后的恢复或追溯：
 
 - 需求解析结果
 - 候选竞品列表
@@ -196,11 +212,11 @@ sequenceDiagram
 
 关键实现代码位于：
 
-- [packages/providers/src/llm/openai-compatible-provider.ts](/Users/sagima/competitive-report-studio/packages/providers/src/llm/openai-compatible-provider.ts)
-- [packages/retrieval/src/content-pipeline.ts](/Users/sagima/competitive-report-studio/packages/retrieval/src/content-pipeline.ts)
-- [packages/orchestrator/src/analysis-pipeline.ts](/Users/sagima/competitive-report-studio/packages/orchestrator/src/analysis-pipeline.ts)
-- [packages/charting/src/chart-renderer.ts](/Users/sagima/competitive-report-studio/packages/charting/src/chart-renderer.ts)
-- [packages/docx-engine/src/template-engine.ts](/Users/sagima/competitive-report-studio/packages/docx-engine/src/template-engine.ts)
+- [packages/providers/src/llm/openai-compatible-provider.ts](../packages/providers/src/llm/openai-compatible-provider.ts)
+- [packages/retrieval/src/content-pipeline.ts](../packages/retrieval/src/content-pipeline.ts)
+- [packages/orchestrator/src/analysis-pipeline.ts](../packages/orchestrator/src/analysis-pipeline.ts)
+- [packages/charting/src/chart-renderer.ts](../packages/charting/src/chart-renderer.ts)
+- [packages/docx-engine/src/template-engine.ts](../packages/docx-engine/src/template-engine.ts)
 
 ### 核心接口
 
@@ -220,7 +236,7 @@ sequenceDiagram
   - `buildCharts`
   - `writeReport`
 
-## 7. 项目目录结构
+## 7. 当前目录结构
 
 ```text
 competitive-report-studio/
@@ -228,12 +244,14 @@ competitive-report-studio/
 │   ├── api/
 │   │   └── src/modules/
 │   │       ├── models/
+│   │       ├── gantt/
 │   │       ├── tasks/
 │   │       ├── templates/
 │   │       ├── reports/
+│   │       ├── retrieval/
 │   │       └── pipeline/
-│   └── web/
-│       └── src/app/
+│   └── web-vue/
+│       └── src/
 ├── packages/
 │   ├── shared/
 │   ├── config/
@@ -249,14 +267,12 @@ competitive-report-studio/
 
 ### 前端
 
-- `Next.js`
+- `Vite + Vue 3`
   - 页面与管理后台
-- `React 19`
-  - 组件与状态管理
-- `TanStack Query`
-  - 后续接接口缓存和重试
-- `React Hook Form + Zod`
-  - 后续表单校验
+- `Vue Router`
+  - 客户端路由
+- `Pinia`
+  - 前端状态管理
 
 ### 后端
 
@@ -272,12 +288,10 @@ competitive-report-studio/
 
 ### 文档与图表
 
-- `docxtemplater + pizzip`
-  - Word 模板替换
 - `docx`
-  - 纯代码生成补充
+  - 当前 Word 报告生成与 Markdown 内容渲染
 - `ECharts SSR` 或 `Chart.js + node-canvas`
-  - 图表图片生成
+  - 后续可替换或增强图表图片生成
 
 ### 检索与抓取
 
@@ -294,7 +308,7 @@ competitive-report-studio/
 
 见：
 
-- [packages/providers/src/llm/openai-compatible-provider.ts](/Users/sagima/competitive-report-studio/packages/providers/src/llm/openai-compatible-provider.ts)
+- [packages/providers/src/llm/openai-compatible-provider.ts](../packages/providers/src/llm/openai-compatible-provider.ts)
 
 设计要点：
 
@@ -306,7 +320,7 @@ competitive-report-studio/
 
 见：
 
-- [packages/retrieval/src/content-pipeline.ts](/Users/sagima/competitive-report-studio/packages/retrieval/src/content-pipeline.ts)
+- [packages/retrieval/src/content-pipeline.ts](../packages/retrieval/src/content-pipeline.ts)
 
 设计要点：
 
@@ -318,7 +332,7 @@ competitive-report-studio/
 
 见：
 
-- [packages/orchestrator/src/analysis-pipeline.ts](/Users/sagima/competitive-report-studio/packages/orchestrator/src/analysis-pipeline.ts)
+- [packages/orchestrator/src/analysis-pipeline.ts](../packages/orchestrator/src/analysis-pipeline.ts)
 
 设计要点：
 
@@ -354,13 +368,13 @@ competitive-report-studio/
 
 模板管理元数据见：
 
-- [apps/api/src/modules/templates/template-service.ts](/Users/sagima/competitive-report-studio/apps/api/src/modules/templates/template-service.ts)
+- [apps/api/src/modules/templates/template-service.ts](../apps/api/src/modules/templates/template-service.ts)
 
 ## 11. 图表生成与插图插入方案
 
 当前代码示例见：
 
-- [packages/charting/src/chart-renderer.ts](/Users/sagima/competitive-report-studio/packages/charting/src/chart-renderer.ts)
+- [packages/charting/src/chart-renderer.ts](../packages/charting/src/chart-renderer.ts)
 
 推荐生产策略：
 
@@ -483,7 +497,7 @@ competitive-report-studio/
 
 ### 更接近真实产品时应优先继续补的内容
 
-- 把 `TaskService`、`TemplateService`、`ReportService` 从内存存储换成 PostgreSQL
+- 把当前单机 JSON 状态存储升级为 PostgreSQL
 - 把 `MockChineseSearchProvider` 替换为真实搜索 + 抓取 + 清洗链路
 - 把 `WordTemplateEngine` 换成真正的 `.docx` 模板替换实现
 - 引入 BullMQ 或 Temporal 支撑长任务

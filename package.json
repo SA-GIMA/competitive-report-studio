@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "node --experimental-strip-types ./apps/api/src/index.ts",
     "dev:api": "node --experimental-strip-types ./apps/api/src/index.ts",
-    "dev:web": "npm run dev --workspace @studio/web",
+    "dev:web": "npm run dev --workspace @studio/web-vue",
+    "dev:web:vue": "npm run dev --workspace @studio/web-vue",
     "dev:bridge": "npm run dev --workspace @studio/skill-bridge",
     "start:api": "node --experimental-strip-types ./apps/api/src/index.ts",
     "build": "npm run build --workspaces --if-present",
@@ -18,7 +19,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "dependencies": {
-    "@fastify/cors": "^11.2.0"
+    "@fastify/cors": "^11.2.0",
+    "postcss": "^8.5.12"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2"

@@ -54,11 +54,37 @@ export type TaskInputMode = "search" | "document_upload";
 export interface RetrievalRuntimeConfig {
   searchApiEndpoint?: string;
   searchApiKey?: string;
+  searxngMode?: "remote" | "embedded";
   searxngEndpoint?: string;
   searxngKey?: string;
+  searxngAutoStart?: boolean;
+  searxngPort?: number;
+  searxngEngines?: string[];
+  searxngAutocomplete?: string;
   serpApiKey?: string;
   skillBridgeEndpoint?: string;
   skillBridgeKey?: string;
+}
+
+export interface NetworkAccessConfig {
+  apiHost: string;
+  apiPort: number;
+  corsOrigins: string[];
+  webBaseUrl: string;
+  lanAccessEnabled: boolean;
+}
+
+export interface NetworkAccessConfigResponse extends NetworkAccessConfig {
+  activeApiHost: string;
+  activeApiPort: number;
+  activeWebBaseUrl: string;
+  activeCorsOrigins: string[];
+  activeLanAccessEnabled: boolean;
+  localNetworkIps: string[];
+  lanFrontendUrls: string[];
+  lanApiUrls: string[];
+  restartRequired: boolean;
+  restartFields: Array<keyof NetworkAccessConfig>;
 }
 
 export interface ModelConnectionConfig {
@@ -332,6 +358,8 @@ export interface ReportArtifact {
   reportId: string;
   editableDocxPath: string;
   finalDocxPath: string;
+  editableFileName?: string;
+  finalFileName?: string;
   chartAssets: GeneratedChartAsset[];
   generatedAt: string;
 }
@@ -371,6 +399,7 @@ export interface AnalysisTask {
   errorMessage?: string;
   failureCategory?: TaskFailureCategory;
   retryable?: boolean;
+  autoResumeAttempts?: number;
   executionCheckpoint?: TaskExecutionCheckpoint;
   currentStep?: string;
   progressPercent?: number;

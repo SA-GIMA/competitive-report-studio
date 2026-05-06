@@ -10,6 +10,9 @@ import type {
 
 const execFile = promisify(execFileCallback);
 const BLOCK_MAX_CHARS = 1200;
+const MAX_ARCHIVE_ENTRIES = 400;
+const MAX_XML_ENTRY_BYTES = 5 * 1024 * 1024;
+const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 40 * 1024 * 1024;
 
 export async function extractUploadedMaterial(
   material: UploadedMaterial
@@ -50,6 +53,7 @@ async function extractPlainTextBlocks(material: UploadedMaterial) {
 async function extractDocxBlocks(material: UploadedMaterial) {
   const buffer = await readFile(material.storagePath);
   const zip = await JSZip.loadAsync(buffer);
+  assertSafeOfficeArchive(zip);
   const documentXml = await zip.file("word/document.xml")?.async("string");
   if (!documentXml) {
     return [];
@@ -101,6 +105,7 @@ async function extractDocxBlocks(material: UploadedMaterial) {
 async function extractPptxBlocks(material: UploadedMaterial) {
   const buffer = await readFile(material.storagePath);
   const zip = await JSZip.loadAsync(buffer);
+  assertSafeOfficeArchive(zip);
   const slideFiles = Object.keys(zip.files)
     .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
     .sort((left, right) => extractNumericSuffix(left) - extractNumericSuffix(right));
@@ -126,6 +131,31 @@ async function extractPptxBlocks(material: UploadedMaterial) {
   }
 
   return buildBlocksFromSections(material, sections);
+}
+
+function assertSafeOfficeArchive(zip: JSZip) {
+  const entries = Object.values(zip.files);
+  if (entries.length > MAX_ARCHIVE_ENTRIES) {
+    throw new Error("上传文档包含过多内部文件，已拒绝解析。");
+  }
+
+  let totalUncompressedSize = 0;
+  for (const entry of entries) {
+    const metadata = entry as typeof entry & {
+      _data?: {
+        uncompressedSize?: number;
+      };
+    };
+    const size = metadata._data?.uncompressedSize ?? 0;
+    totalUncompressedSize += size;
+    if (entry.name.endsWith(".xml") && size > MAX_XML_ENTRY_BYTES) {
+      throw new Error("上传文档内部 XML 过大，已拒绝解析。");
+    }
+  }
+
+  if (totalUncompressedSize > MAX_ARCHIVE_UNCOMPRESSED_BYTES) {
+    throw new Error("上传文档解压后体积过大，已拒绝解析。");
+  }
 }
 
 async function extractWithMacOsTextTools(material: UploadedMaterial) {

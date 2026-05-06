@@ -5,10 +5,12 @@ import { basename } from "node:path";
 import { getAppConfig } from "@studio/config";
 import type {
   EffectiveModelRouting,
+  GanttPlan,
   GanttPlanningRequest,
   ModelConnectionConfig,
   ModelRoutingConfig,
   NaturalLanguageRequirement,
+  NetworkAccessConfig,
   RequirementParseResult,
   RetrievalRuntimeConfig,
   TaskDetailResponse,
@@ -20,11 +22,13 @@ import { PipelineService } from "./modules/pipeline/pipeline-service.ts";
 import { GanttService } from "./modules/gantt/gantt-service.ts";
 import { RetrievalConfigService } from "./modules/retrieval/retrieval-config-service.ts";
 import { ReportService } from "./modules/reports/report-service.ts";
+import { NetworkAccessConfigService } from "./modules/system/network-access-config-service.ts";
 import { TaskService } from "./modules/tasks/task-service.ts";
 import { TemplateService } from "./modules/templates/template-service.ts";
 
 export const buildApp = () => {
   const config = getAppConfig();
+  assertSafeServerBinding(config.apiHost, config.apiToken);
   const app = Fastify({
     logger: true,
     bodyLimit: 50 * 1024 * 1024
@@ -34,6 +38,7 @@ export const buildApp = () => {
   const templateService = new TemplateService();
   const reportService = new ReportService();
   const retrievalConfigService = new RetrievalConfigService();
+  const networkAccessConfigService = new NetworkAccessConfigService();
   const materialService = new MaterialService(config.storage.materialsDir);
   const ganttService = new GanttService(modelService);
   const pipelineService = new PipelineService(
@@ -46,12 +51,36 @@ export const buildApp = () => {
   );
 
   void app.register(cors, {
-    origin: true,
+    origin: (origin, callback) => {
+      if (networkAccessConfigService.isCorsOriginAllowed(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type"]
+    allowedHeaders: ["Content-Type", "Authorization"]
+  });
+
+  app.addHook("onRequest", async (request, reply) => {
+    if (!config.apiToken || request.url === "/api/health") {
+      return;
+    }
+
+    const expected = `Bearer ${config.apiToken}`;
+    if (request.headers.authorization !== expected) {
+      await reply.code(401).send({ message: "未授权，请提供有效 API Token。" });
+    }
   });
 
   app.get("/api/health", async () => ({ ok: true }));
+
+  app.get("/api/network-access-config", async () => networkAccessConfigService.get());
+
+  app.put("/api/network-access-config", async (request) => {
+    const body = request.body as Partial<NetworkAccessConfig>;
+    return networkAccessConfigService.update(body);
+  });
 
   app.get("/api/gantt/plans", async () => ({
     items: ganttService.listPlans()
@@ -62,13 +91,28 @@ export const buildApp = () => {
     return ganttService.getPlan(params.id);
   });
 
+  app.put("/api/gantt/plans/:id", async (request) => {
+    const params = request.params as { id: string };
+    const body = request.body as Partial<GanttPlanningRequest> & {
+      projectName?: string;
+      projectSummary?: string;
+      startDate?: string;
+      endDate?: string;
+      targetEndDate?: string;
+      tasks?: GanttPlan["tasks"];
+      assumptions?: string[];
+      riskNotes?: string[];
+    };
+    return ganttService.updatePlan(params.id, body);
+  });
+
   app.post("/api/gantt/plans", async (request) => {
     const body = request.body as GanttPlanningRequest;
     return ganttService.generatePlan(body);
   });
 
   app.get("/api/models", async () => ({
-    items: modelService.list(),
+    items: modelService.listPublic(),
     routing: modelService.getRouting(),
     effectiveRouting: modelService.getEffectiveRouting() satisfies EffectiveModelRouting
   }));
@@ -78,15 +122,20 @@ export const buildApp = () => {
     return modelService.healthCheck(params.id);
   });
 
+  app.post("/api/models/discover", async (request) => {
+    const body = request.body as ModelConnectionConfig;
+    return modelService.discoverAvailableModels(body);
+  });
+
   app.post("/api/models", async (request) => {
     const body = request.body as ModelConnectionConfig;
-    return modelService.upsert(body);
+    return modelService.toPublicModel(modelService.upsert(body));
   });
 
   app.put("/api/models/:id", async (request) => {
     const params = request.params as { id: string };
     const body = request.body as Partial<ModelConnectionConfig>;
-    return modelService.update(params.id, body);
+    return modelService.toPublicModel(modelService.update(params.id, body));
   });
 
   app.delete("/api/models/:id", async (request) => {
@@ -99,16 +148,30 @@ export const buildApp = () => {
     return modelService.updateRouting(body);
   });
 
-  app.get("/api/retrieval-config", async () => retrievalConfigService.get());
+  app.get("/api/retrieval-config", async () => retrievalConfigService.getPublic());
+
+  void retrievalConfigService.warmupEmbeddedSearxng().catch(() => undefined);
 
   app.put("/api/retrieval-config", async (request) => {
     const body = request.body as Partial<RetrievalRuntimeConfig>;
-    return retrievalConfigService.update(body);
+    return retrievalConfigService.updatePublic(body);
+  });
+
+  app.get("/api/retrieval-config/searxng/embedded/status", async () => {
+    return retrievalConfigService.getEmbeddedSearxngStatus();
+  });
+
+  app.post("/api/retrieval-config/searxng/embedded/start", async () => {
+    return retrievalConfigService.startEmbeddedSearxng();
+  });
+
+  app.post("/api/retrieval-config/searxng/embedded/stop", async () => {
+    return retrievalConfigService.stopEmbeddedSearxng();
   });
 
   app.post("/api/config/reset", async () => ({
     models: modelService.resetToDefaults(),
-    retrievalConfig: retrievalConfigService.reset()
+    retrievalConfig: retrievalConfigService.resetPublic()
   }));
 
   app.get("/api/retrieval-config/check/search-api", async () => {
@@ -121,6 +184,10 @@ export const buildApp = () => {
 
   app.get("/api/retrieval-config/check/searxng", async () => {
     return retrievalConfigService.validateSearxng();
+  });
+
+  app.get("/api/retrieval-config/check/searxng/runtime", async () => {
+    return retrievalConfigService.checkSearxngRuntime();
   });
 
   app.get("/api/retrieval-config/check/skill-bridge", async () => {
@@ -226,10 +293,11 @@ export const buildApp = () => {
   app.get("/api/reports/:id/download/:kind", async (request, reply) => {
     const params = request.params as { id: string; kind: "final" | "editable" };
     const filePath = reportService.getReportFile(params.id, params.kind);
+    const downloadName = reportService.getReportDownloadName(params.id, params.kind) ?? basename(filePath);
     const fileBuffer = await readFile(filePath);
     reply.header(
       "Content-Disposition",
-      `inline; filename="${basename(filePath)}"`
+      `inline; filename="${basename(filePath)}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`
     );
     reply.type(
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -247,4 +315,16 @@ export const buildApp = () => {
   });
 
   return app;
+};
+
+const assertSafeServerBinding = (host: string, apiToken: string | undefined) => {
+  const normalizedHost = host.trim().toLowerCase();
+  const isLoopback =
+    normalizedHost === "127.0.0.1" ||
+    normalizedHost === "localhost" ||
+    normalizedHost === "::1";
+
+  if (!isLoopback && !apiToken) {
+    console.warn("API_HOST 绑定到非本机地址时建议设置 API_TOKEN。");
+  }
 };

@@ -1,12 +1,32 @@
+import { join } from "node:path";
+import { getAppConfig } from "@studio/config";
 import { randomUUID } from "node:crypto";
 import type {
   AnalysisTask,
   NaturalLanguageRequirement,
   RequirementParseResult
 } from "@studio/shared";
+import { TaskStateStore } from "./task-state-store.ts";
 
 export class TaskService {
   private readonly tasks = new Map<string, AnalysisTask>();
+  private readonly store = new TaskStateStore(
+    join(process.cwd(), getAppConfig().storage.appStateDir, "analysis-tasks.json")
+  );
+
+  constructor() {
+    let mutated = false;
+    for (const task of this.store.load()) {
+      const normalizedTask = normalizeLoadedTask(task);
+      if (normalizedTask !== task) {
+        mutated = true;
+      }
+      this.tasks.set(task.id, normalizedTask);
+    }
+    if (mutated) {
+      this.persist();
+    }
+  }
 
   create(input: NaturalLanguageRequirement & { parseResult?: RequirementParseResult }) {
     const id = randomUUID();
@@ -24,12 +44,14 @@ export class TaskService {
       parseResult: input.parseResult,
       status: "draft",
       retryable: true,
+      autoResumeAttempts: 0,
       currentStep: "等待执行",
       progressPercent: 0,
       createdAt: now,
       updatedAt: now
     };
     this.tasks.set(id, task);
+    this.persist();
     return task;
   }
 
@@ -55,6 +77,27 @@ export class TaskService {
       updatedAt: new Date().toISOString()
     };
     this.tasks.set(taskId, next);
+    this.persist();
     return next;
   }
+
+  private persist() {
+    this.store.save(this.list());
+  }
 }
+
+const normalizeLoadedTask = (task: AnalysisTask): AnalysisTask => {
+  if (task.status !== "failed" || !task.errorMessage) {
+    return task;
+  }
+
+  if (/LLM 返回内容为空|empty response|模型返回为空/i.test(task.errorMessage)) {
+    return {
+      ...task,
+      retryable: true,
+      failureCategory: "provider"
+    };
+  }
+
+  return task;
+};

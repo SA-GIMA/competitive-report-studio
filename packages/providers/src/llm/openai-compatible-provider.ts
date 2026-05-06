@@ -1,5 +1,6 @@
 import type { ModelConnectionConfig } from "@studio/shared";
 import type { GenerateTextInput, LlmProvider } from "./types.ts";
+import { assertSafeHttpUrl } from "../url-security.ts";
 
 interface OpenAiChatCompletionResponse {
   choices?: Array<{
@@ -9,12 +10,19 @@ interface OpenAiChatCompletionResponse {
   }>;
 }
 
+interface OpenAiModelsResponse {
+  data?: Array<{
+    id?: string;
+  }>;
+}
+
 export class OpenAiCompatibleProvider implements LlmProvider {
   readonly providerName = "openai-compatible";
 
   async healthCheck(config: ModelConnectionConfig) {
     try {
-      const response = await fetch(`${config.baseUrl.replace(/\/$/, "")}/models`, {
+      const baseUrl = await assertSafeHttpUrl(config.baseUrl);
+      const response = await fetch(`${baseUrl.toString().replace(/\/$/, "")}/models`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${resolveApiKey(config.apiKeyRef)}`
@@ -40,10 +48,54 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     }
   }
 
+  async listAvailableModels(config: ModelConnectionConfig) {
+    try {
+      const baseUrl = await assertSafeHttpUrl(config.baseUrl);
+      const response = await fetch(`${baseUrl.toString().replace(/\/$/, "")}/models`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${resolveApiKey(config.apiKeyRef)}`
+        },
+        signal: AbortSignal.timeout(config.timeoutMs)
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        return {
+          ok: false,
+          message: `/models 调用失败: ${response.status} ${body}`,
+          models: []
+        };
+      }
+
+      const payload = (await response.json()) as OpenAiModelsResponse;
+      const models = Array.from(
+        new Set(
+          (payload.data ?? [])
+            .map((item) => item.id?.trim())
+            .filter((item): item is string => Boolean(item))
+        )
+      );
+
+      return {
+        ok: models.length > 0,
+        message: models.length > 0 ? `发现 ${models.length} 个可用模型` : "接口可访问，但未返回模型列表",
+        models
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "拉取模型列表失败",
+        models: []
+      };
+    }
+  }
+
   private async fallbackChatCompletionHealthCheck(config: ModelConnectionConfig) {
     try {
+      const baseUrl = await assertSafeHttpUrl(config.baseUrl);
       const response = await fetch(
-        `${config.baseUrl.replace(/\/$/, "")}/chat/completions`,
+        `${baseUrl.toString().replace(/\/$/, "")}/chat/completions`,
         {
           method: "POST",
           headers: {
@@ -84,10 +136,11 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     let lastRateLimitMessage = "";
     const systemPrompt = ensureJsonPromptCompatibility(input.systemPrompt, input.responseFormat);
     const userPrompt = ensureJsonPromptCompatibility(input.userPrompt, input.responseFormat);
+    const baseUrl = await assertSafeHttpUrl(config.baseUrl);
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const response = await fetch(
-        `${config.baseUrl.replace(/\/$/, "")}/chat/completions`,
+        `${baseUrl.toString().replace(/\/$/, "")}/chat/completions`,
         {
           method: "POST",
           headers: {

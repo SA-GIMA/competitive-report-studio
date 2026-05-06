@@ -1,10 +1,12 @@
 import type { SearchDocument, SearchQuery } from "@studio/shared";
 import type { SearchProvider } from "./types.ts";
+import { assertSafeHttpUrl } from "../url-security.ts";
 
 interface SearchProviderOptions {
   endpoint: string;
   apiKey?: string;
   defaultLanguage?: string;
+  allowPrivateEndpoint?: boolean;
 }
 
 export class OpenSearchProvider implements SearchProvider {
@@ -16,7 +18,9 @@ export class OpenSearchProvider implements SearchProvider {
   }
 
   async search(query: SearchQuery): Promise<SearchDocument[]> {
-    const url = new URL(this.options.endpoint);
+    const url = await assertSafeHttpUrl(this.options.endpoint, {
+      allowPrivate: this.options.allowPrivateEndpoint
+    });
     url.searchParams.set("q", query.keyword);
     url.searchParams.set("language", this.options.defaultLanguage ?? "zh-CN");
     if (query.timeRange) {

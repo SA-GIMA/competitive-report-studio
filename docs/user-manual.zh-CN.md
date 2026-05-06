@@ -1,4 +1,4 @@
-# Competitive Report Studio 使用说明书（v2.1）
+# Competitive Report Studio 使用说明书（v3.0）
 
 ## 1. 文档目的
 
@@ -13,7 +13,7 @@
 本文重点说明：
 
 - 如何在本机启动系统
-- 如何使用模型设置、模板管理、任务创建和报告生成功能
+- 如何使用设置、模板管理、任务创建和报告生成功能
 - 如何理解系统当前能力边界
 - 如何排查常见问题
 - 如何继续扩展为更完整的生产系统
@@ -41,55 +41,64 @@
 
 ## 3. 当前版本包含的主要能力
 
-### 3.0 v2.1 本次更新
+### 3.0 本次更新
 
+- 前端主实现切换为 `Vite + Vue 3`，当前 Web 入口为 `apps/web-vue`。
+- 设置页拆分为“模型接入设置、模型路由设置、网络与访问、检索配置”四个分区。
+- 网络与访问分区支持前端局域网访问，开启后会展示当前本机真实局域网 IP 访问地址。
+- 新增智能甘特图生成、历史记录与编辑保存能力。
+- 内置 SearXNG 支持本地安装、启动、停止、运行状态检查和检索测试。
+- 任务执行改为后台异步推进，前端通过轮询展示状态、进度、暂停、恢复、重试和断点信息。
 - 报告章节生成新增“前文章节记忆”，后续章节会参考前面章节的摘要与关键结论继续写作。
 - 图表插入逻辑已收紧，默认只在“核心功能对比”章节展示图表，避免整份报告多章节重复插图。
 - Word 导出的“附录：参考资料”改为左对齐、无首行缩进，附录阅读体验更稳定。
+- 模型配置、检索配置、模板配置、任务、报告记录、上传材料元数据已改为本地文件持久化，服务重启后仍可恢复。
 
 ### 3.1 已可用能力
 
 - 本地启动 Web 和 API 服务
 - 模型列表读取、编辑、保存、健康检查、任务路由切换
+- 内置 SearXNG 安装、启动、停止、运行状态检查与检索测试
 - 模板列表查看、上传 `.docx`、章节编辑、启停、排序、保存
 - 任务页进行需求解析预览
 - 任务页直接创建并运行报告生成任务
 - 任务页显示后台执行进度
 - 生成真实 `.docx` 文件
 - 输出图表资源文件
+- 甘特图自动生成、历史记录与编辑保存
 - 使用浏览器页面体验主要流程
 
-### 3.2 当前仍为示例能力
+### 3.2 当前仍为示例或受限能力
 
-- 中文互联网检索目前为 mock 数据源
-- 报告内容生成主要依赖 demo provider
+- 某些检索模式仍可能使用 mock 或降级数据源
+- 报告内容生成是否完全真实，取决于你是否把写作路由切换到真实模型
 - 模板上传后尚未自动解析真实 Word 占位符
-- 数据存储目前以内存为主，重启服务后动态配置不会保留
-- 报告详情页尚未完全接入真实数据预览
+- 报告详情页以产物、图表和生成记录查看为主，尚不是完整富文本编辑器。
+- 内置 `SearXNG` 的搜索覆盖仍受本机网络环境和目标搜索引擎可达性影响
 
 ## 4. 目录说明
 
 项目根目录：
 
-- [competitive-report-studio](/Users/sagima/competitive-report-studio)
+- [competitive-report-studio](..)
 
 关键目录说明：
 
-- [apps/web](/Users/sagima/competitive-report-studio/apps/web)
-  - 前端界面
-- [apps/api](/Users/sagima/competitive-report-studio/apps/api)
+- [apps/web-vue](../apps/web-vue)
+  - Vue 前端界面
+- [apps/api](../apps/api)
   - 后端 API
-- [packages/shared](/Users/sagima/competitive-report-studio/packages/shared)
+- [packages/shared](../packages/shared)
   - 共享类型定义
-- [packages/orchestrator](/Users/sagima/competitive-report-studio/packages/orchestrator)
+- [packages/orchestrator](../packages/orchestrator)
   - 报告流水线编排
-- [packages/docx-engine](/Users/sagima/competitive-report-studio/packages/docx-engine)
+- [packages/docx-engine](../packages/docx-engine)
   - Word 生成逻辑
-- [packages/charting](/Users/sagima/competitive-report-studio/packages/charting)
+- [packages/charting](../packages/charting)
   - 图表输出逻辑
-- [docs/architecture.zh-CN.md](/Users/sagima/competitive-report-studio/docs/architecture.zh-CN.md)
+- [docs/architecture.zh-CN.md](../docs/architecture.zh-CN.md)
   - 架构说明
-- [docs/user-manual.zh-CN.md](/Users/sagima/competitive-report-studio/docs/user-manual.zh-CN.md)
+- [docs/user-manual.zh-CN.md](../docs/user-manual.zh-CN.md)
   - 本文档
 
 ## 5. 环境要求
@@ -114,14 +123,14 @@
 在项目根目录执行：
 
 ```bash
-cd /Users/sagima/competitive-report-studio
+cd competitive-report-studio
 npm install
 ```
 
 ### 6.2 启动 API
 
 ```bash
-cd /Users/sagima/competitive-report-studio
+cd competitive-report-studio
 npm run dev:api
 ```
 
@@ -138,20 +147,20 @@ npm run dev:api
 另开一个终端：
 
 ```bash
-cd /Users/sagima/competitive-report-studio
+cd competitive-report-studio
 npm run dev:web
 ```
 
 默认访问地址：
 
-- `http://127.0.0.1:3000`
+- `http://127.0.0.1:3001`
 
 ### 6.4 启动 Skill Bridge 示例服务
 
 如果你希望测试 `Skill Bridge` 检索模式，可额外启动示例 bridge：
 
 ```bash
-cd /Users/sagima/competitive-report-studio
+cd competitive-report-studio
 npm run dev:bridge
 ```
 
@@ -164,11 +173,11 @@ npm run dev:bridge
 生成的文件默认输出到：
 
 - 报告目录
-  - [storage/reports](/Users/sagima/competitive-report-studio/storage/reports)
+  - [storage/reports](../storage/reports)
 - 图表目录
-  - [storage/charts](/Users/sagima/competitive-report-studio/storage/charts)
+  - [storage/charts](../storage/charts)
 - 模板目录
-  - [storage/templates](/Users/sagima/competitive-report-studio/storage/templates)
+  - [storage/templates](../storage/templates)
 
 ## 7. 页面使用说明
 
@@ -176,40 +185,45 @@ npm run dev:bridge
 
 地址：
 
-- [/](/Users/sagima/competitive-report-studio/apps/web/src/app/page.tsx)
+- [DashboardView.vue](../apps/web-vue/src/views/DashboardView.vue)
 
 作用：
 
 - 查看系统定位
-- 快速进入任务创建、模板管理、模型设置
+- 快速进入任务创建、模板管理、设置
 
 当前特点：
 
 - 用于展示产品入口和关键能力
 - 不承担具体业务操作
 
-### 7.2 模型设置页
+### 7.2 设置页
 
 地址：
 
-- [settings/page.tsx](/Users/sagima/competitive-report-studio/apps/web/src/app/settings/page.tsx)
+- [SettingsView.vue](../apps/web-vue/src/views/SettingsView.vue)
 
 核心组件：
 
-- [settings-console.tsx](/Users/sagima/competitive-report-studio/apps/web/src/components/settings-console.tsx)
+- [SettingsView.vue](../apps/web-vue/src/views/SettingsView.vue)
 
 #### 页面功能
 
+- 在顶部分区切换“模型接入设置、模型路由设置、网络与访问、检索配置”
 - 查看已有模型列表
 - 编辑模型信息
 - 新建模型连接
-- 删除模型连接
-- 套用主流模型预设
+- 从 OpenAI 兼容接口发现模型列表
 - 保存模型配置
 - 检测模型可用性
 - 设置规划模型、抽取模型、写作模型路由
+- 配置 API 监听地址、端口、CORS 来源和前端局域网访问
+- 开启局域网访问后展示当前本机真实访问地址，例如 `http://192.168.x.x:3001`
 - 配置 Search API
+- 配置内置或外部 SearXNG
 - 配置 Skill Bridge
+- 检查当前 SearXNG 运行状态
+- 测试 SearXNG 检索链路
 
 #### 可编辑字段
 
@@ -226,37 +240,60 @@ npm run dev:bridge
 
 #### 典型使用流程
 
-1. 进入“模型设置”
+1. 进入“设置”
 2. 在左侧选择已有模型，或点击“新建模型”
-3. 如果是常见模型，可以先点击主流模型预设自动带入 Base URL 和 Model
+3. 填写 Base URL 和 API Key 后，可点击“获取模型列表”发现可用模型
 4. 在右侧填写或微调模型连接信息
-5. 点击“检测可用性”
+5. 点击“连接检测”
 6. 点击“保存模型”
-6. 在下方“任务路由”区域设置：
+7. 在“模型路由设置”区域设置：
    - 规划模型
    - 抽取模型
    - 写作模型
-7. 在“检索配置”区域设置：
+8. 在“网络与访问”区域设置：
+   - API 监听地址
+   - API 端口
+   - CORS 允许来源
+   - 前端局域网访问
+9. 在“检索配置”区域设置：
    - `Search API Endpoint`
    - `Search API Key`
+   - `SearXNG Mode`
+   - `SearXNG Engines`
+   - `SearXNG Port`
    - `Skill Bridge Endpoint`
    - `Skill Bridge Key`
 
+#### SearXNG 使用建议
+
+- 如果你希望系统自己管理检索实例，选择 `内置实例`
+- 如果你已有自建网关，选择 `外部 Endpoint`
+- `检查当前 SearXNG 状态` 用于确认实例是否真的在运行
+- `测试 SearXNG` 用于确认当前配置下是否能拿到真实检索结果
+- 中国网络环境下，建议先从 `bing,baidu` 开始，再根据实际结果微调
+
+#### 内置 SearXNG 前提
+
+- 本机可用 `git`
+- 本机可用 `python3`
+- 能访问 `GitHub` 和 Python 包安装源
+- 首次安装可能需要几十秒
+
 #### 当前注意事项
 
-- 目前模型配置保存在内存中
-- API 重启后，手工新增和修改的模型不会保留
-- 若要长期保存，需要后续接数据库
+- 当前模型配置会写入本地 `storage/app-state/models.json`
+- API 重启后，手工新增和修改的模型仍会保留
+- 当前方案仍然不是数据库方案，但已适合作为单机本地持久化方案
 
 ### 7.3 模板管理页
 
 地址：
 
-- [templates/page.tsx](/Users/sagima/competitive-report-studio/apps/web/src/app/templates/page.tsx)
+- [TemplateView.vue](../apps/web-vue/src/views/TemplateView.vue)
 
 核心组件：
 
-- [template-console.tsx](/Users/sagima/competitive-report-studio/apps/web/src/components/template-console.tsx)
+- [TemplateView.vue](../apps/web-vue/src/views/TemplateView.vue)
 
 #### 页面功能
 
@@ -305,11 +342,11 @@ npm run dev:bridge
 
 地址：
 
-- [tasks/new/page.tsx](/Users/sagima/competitive-report-studio/apps/web/src/app/tasks/new/page.tsx)
+- [TaskCreateView.vue](../apps/web-vue/src/views/TaskCreateView.vue)
 
 核心组件：
 
-- [task-console.tsx](/Users/sagima/competitive-report-studio/apps/web/src/components/task-console.tsx)
+- [TaskCreateView.vue](../apps/web-vue/src/views/TaskCreateView.vue)
 
 #### 页面功能
 
@@ -321,7 +358,7 @@ npm run dev:bridge
 - 创建并运行分析任务
 - 查看解析结果
 - 查看候选竞品
-- 查看最终生成的报告路径
+- 查看最终生成的报告入口和产物下载链接
 
 #### 使用步骤
 
@@ -331,6 +368,8 @@ npm run dev:bridge
 4. 选择检索模式：
    - `Mock`
    - `Search API`
+   - `SearXNG`
+   - `SerpAPI(Baidu)`
    - `Skill Bridge`
    - `Hybrid`
 5. 点击“解析需求”
@@ -338,7 +377,7 @@ npm run dev:bridge
 7. 查看候选竞品
 8. 点击“创建并运行”
 9. 等待任务结束
-10. 在“执行结果”区域查看 Word 文件路径
+10. 在任务详情或报告页打开 Word 下载链接
 
 当前创建任务页中：
 
@@ -347,15 +386,14 @@ npm run dev:bridge
 
 #### 当前注意事项
 
-- 当前候选竞品仍是自动发现结果
-- 还不支持页面内勾选确认、手动增删候选竞品
-- 这部分适合后续继续补强
+- 搜索模式下支持自动发现候选竞品，也支持在页面中选择、取消选择或手动补充候选竞品。
+- 上传材料模式下可按竞品上传本地资料，系统会基于资料块生成画像。
 
 ### 7.5 报告预览页
 
 地址：
 
-- [reports/[id]/page.tsx](/Users/sagima/competitive-report-studio/apps/web/src/app/reports/[id]/page.tsx)
+- [ReportView.vue](../apps/web-vue/src/views/ReportView.vue)
 
 当前状态：
 
@@ -518,6 +556,28 @@ GET /api/tasks
 GET /api/reports/:id
 ```
 
+### 8.15 获取网络与访问配置
+
+```http
+GET /api/network-access-config
+```
+
+返回内容包括：
+
+- `apiHost`
+- `apiPort`
+- `corsOrigins`
+- `lanAccessEnabled`
+- `localNetworkIps`
+- `lanFrontendUrls`
+- `lanApiUrls`
+
+### 8.16 更新网络与访问配置
+
+```http
+PUT /api/network-access-config
+```
+
 ## 9. 报告生成流程说明
 
 系统在执行任务时大致经历以下步骤：
@@ -541,7 +601,7 @@ GET /api/reports/:id
 
 主编排代码位置：
 
-- [analysis-pipeline.ts](/Users/sagima/competitive-report-studio/packages/orchestrator/src/analysis-pipeline.ts)
+- [analysis-pipeline.ts](../packages/orchestrator/src/analysis-pipeline.ts)
 
 ## 10. 输出文件说明
 
@@ -570,7 +630,7 @@ GET /api/reports/:id
 
 图表生成逻辑位置：
 
-- [chart-renderer.ts](/Users/sagima/competitive-report-studio/packages/charting/src/chart-renderer.ts)
+- [chart-renderer.ts](../packages/charting/src/chart-renderer.ts)
 
 当前图表生成前会补一轮图表专用检索，这一轮检索会直接沿用当前任务选择的检索模式：
 
@@ -600,7 +660,7 @@ GET /api/reports/:id
 - 不要把当前报告内容当成正式行业研究结论
 - 不要把当前候选竞品发现当成真实市场结果
 - 不要把当前模板上传当成真实模板解析器
-- 不要把当前内存数据当成长期保存的数据源
+- 不要把当前本地 JSON 持久化当成多人协作或高并发场景下的正式数据库方案
 
 ## 12. 常见问题
 
@@ -616,7 +676,15 @@ GET /api/reports/:id
 
 ### 12.2 为什么修改模型配置后，重启服务就丢了
 
-因为当前模型配置保存在内存中，没有接数据库。
+当前版本已经不会因为重启而丢失模型配置。
+
+模型、检索配置、模板、任务、报告记录和上传材料元数据都会落到本地 `storage/app-state` 目录下。
+
+如果你重启后发现数据没有恢复，优先检查：
+
+1. 当前启动目录是否仍是项目根目录
+2. `storage/app-state` 下的 JSON 文件是否存在
+3. 是否误删了本地 `storage` 目录
 
 ### 12.3 为什么模板上传成功了，但不会自动识别 Word 占位符
 
@@ -761,7 +829,7 @@ GET /api/reports/:id
 
 仓库已经提供一个可运行的 bridge 示例服务：
 
-- [apps/skill-bridge/src/index.ts](/Users/sagima/competitive-report-studio/apps/skill-bridge/src/index.ts)
+- [apps/skill-bridge/src/index.ts](../apps/skill-bridge/src/index.ts)
 
 它支持两种模式：
 
@@ -782,13 +850,13 @@ GET /api/reports/:id
 1. 优先接 `Skill Bridge`
 2. 再逐步把 Skill 能力沉淀成稳定服务
 
-## 13. 推荐使用方式
+## 14. 推荐使用方式
 
 如果你是演示和原型验证阶段，推荐这样用：
 
 1. 启动 API
 2. 启动 Web
-3. 在模型设置页熟悉路由逻辑
+3. 在设置页熟悉模型接入、路由和网络访问逻辑
 4. 在模板管理页上传一个测试模板
 5. 在任务创建页输入自然语言需求
 6. 先点“解析需求”
@@ -803,42 +871,42 @@ GET /api/reports/:id
 4. 报告详情页真实化
 5. Word 模板占位符解析
 
-## 14. 运维与开发建议
+## 15. 运维与开发建议
 
-### 14.1 当前开发入口
+### 15.1 当前开发入口
 
 - API 启动脚本
-  - [package.json](/Users/sagima/competitive-report-studio/package.json)
+  - [package.json](../package.json)
 - Web 启动脚本
-  - [apps/web/package.json](/Users/sagima/competitive-report-studio/apps/web/package.json)
+  - [apps/web-vue/package.json](../apps/web-vue/package.json)
 
-### 14.2 关键后端模块
+### 15.2 关键后端模块
 
 - 模型管理
-  - [model-service.ts](/Users/sagima/competitive-report-studio/apps/api/src/modules/models/model-service.ts)
+  - [model-service.ts](../apps/api/src/modules/models/model-service.ts)
 - 模板管理
-  - [template-service.ts](/Users/sagima/competitive-report-studio/apps/api/src/modules/templates/template-service.ts)
+  - [template-service.ts](../apps/api/src/modules/templates/template-service.ts)
 - 流水线服务
-  - [pipeline-service.ts](/Users/sagima/competitive-report-studio/apps/api/src/modules/pipeline/pipeline-service.ts)
+  - [pipeline-service.ts](../apps/api/src/modules/pipeline/pipeline-service.ts)
 - Mock 检索
-  - [mock-search-provider.ts](/Users/sagima/competitive-report-studio/apps/api/src/modules/pipeline/mock-search-provider.ts)
+  - [mock-search-provider.ts](../apps/api/src/modules/pipeline/mock-search-provider.ts)
 
-### 14.3 关键前端组件
+### 15.3 关键前端组件
 
-- 设置页控制台
-  - [settings-console.tsx](/Users/sagima/competitive-report-studio/apps/web/src/components/settings-console.tsx)
-- 模板页控制台
-  - [template-console.tsx](/Users/sagima/competitive-report-studio/apps/web/src/components/template-console.tsx)
-- 任务页控制台
-  - [task-console.tsx](/Users/sagima/competitive-report-studio/apps/web/src/components/task-console.tsx)
+- 设置页
+  - [SettingsView.vue](../apps/web-vue/src/views/SettingsView.vue)
+- 模板页
+  - [TemplateView.vue](../apps/web-vue/src/views/TemplateView.vue)
+- 任务页
+  - [TaskCreateView.vue](../apps/web-vue/src/views/TaskCreateView.vue)
 
-## 15. 后续迭代建议
+## 16. 后续迭代建议
 
 建议按下面顺序继续推进：
 
 ### 第一优先级
 
-- 接 PostgreSQL 持久化模型、模板、任务、报告
+- 从单机 JSON 持久化升级到 PostgreSQL 持久化模型、模板、任务、报告
 - 接 Redis / BullMQ 做任务队列
 - 把报告详情页改为真实数据页
 
@@ -861,7 +929,7 @@ GET /api/reports/:id
 - 支持更丰富图表
 - 支持参考来源在正文中的精确引用
 
-## 16. 结语
+## 17. 结语
 
 当前版本已经具备“本地可运行、主要页面可操作、可生成 Word 报告”的基础能力，适合作为：
 
@@ -870,9 +938,9 @@ GET /api/reports/:id
 - 演示版本
 - 后续生产化重构基础
 
-当前 v2.1 相比 v2.0，已经进一步改善了报告章节之间的连贯性和导出版式细节，更适合继续朝“可直接交付的竞品分析报告系统”方向演进。
+当前 v3.0 相比 v2.1，已经进一步补齐 Vue 前端、网络访问、检索管理、甘特图和本地持久化能力，更适合继续朝“可直接交付的本地智能分析工作台”方向演进。
 
 如果你准备继续扩展这个项目，建议把本文档与架构文档一起使用：
 
-- [architecture.zh-CN.md](/Users/sagima/competitive-report-studio/docs/architecture.zh-CN.md)
-- [user-manual.zh-CN.md](/Users/sagima/competitive-report-studio/docs/user-manual.zh-CN.md)
+- [architecture.zh-CN.md](../docs/architecture.zh-CN.md)
+- [user-manual.zh-CN.md](../docs/user-manual.zh-CN.md)

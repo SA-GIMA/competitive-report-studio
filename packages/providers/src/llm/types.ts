@@ -9,5 +9,8 @@ export interface GenerateTextInput {
 export interface LlmProvider {
   readonly providerName: string;
   healthCheck(config: ModelConnectionConfig): Promise<{ ok: boolean; message: string }>;
+  listAvailableModels?(
+    config: ModelConnectionConfig
+  ): Promise<{ ok: boolean; message: string; models: string[] }>;
   generateText(config: ModelConnectionConfig, input: GenerateTextInput): Promise<string>;
 }

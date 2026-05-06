@@ -1,10 +1,12 @@
 import type { WordTemplateDefinition } from "@studio/shared";
 import { mkdir, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getAppConfig } from "@studio/config";
+import { TemplateStateStore } from "./template-state-store.ts";
 
 const now = new Date().toISOString();
+const MAX_TEMPLATE_BYTES = 10 * 1024 * 1024;
 
 const executiveTemplate: WordTemplateDefinition = {
   id: "tpl-executive-zh",
@@ -157,11 +159,25 @@ const briefTemplate: WordTemplateDefinition = {
 };
 
 export class TemplateService {
-  private readonly templates = new Map<string, WordTemplateDefinition>([
-    [executiveTemplate.id, executiveTemplate],
-    [researchTemplate.id, researchTemplate],
-    [briefTemplate.id, briefTemplate]
-  ]);
+  private readonly templates = new Map<string, WordTemplateDefinition>();
+  private readonly store = new TemplateStateStore(
+    join(process.cwd(), getAppConfig().storage.appStateDir, "templates.json")
+  );
+
+  constructor() {
+    const persistedTemplates = this.store.load();
+    const defaults = [executiveTemplate, researchTemplate, briefTemplate];
+
+    for (const template of defaults) {
+      this.templates.set(template.id, template);
+    }
+
+    for (const template of persistedTemplates) {
+      if (template?.id) {
+        this.templates.set(template.id, template);
+      }
+    }
+  }
 
   list() {
     return Array.from(this.templates.values());
@@ -181,6 +197,7 @@ export class TemplateService {
       updatedAt: new Date().toISOString()
     };
     this.templates.set(template.id, next);
+    this.persist();
     return next;
   }
 
@@ -192,6 +209,7 @@ export class TemplateService {
       updatedAt: new Date().toISOString()
     };
     this.templates.set(templateId, next);
+    this.persist();
     return next;
   }
 
@@ -205,9 +223,19 @@ export class TemplateService {
     const config = getAppConfig();
     const templateId = `tpl-upload-${randomUUID().slice(0, 8)}`;
     const safeName = basename(input.fileName || `${templateId}.docx`);
+    if (extname(safeName).toLowerCase() !== ".docx") {
+      throw new Error("模板上传仅支持 docx 文件。");
+    }
+    const buffer = Buffer.from(input.fileContentBase64, "base64");
+    if (!buffer.length) {
+      throw new Error("模板文件为空，请重新选择文件。");
+    }
+    if (buffer.length > MAX_TEMPLATE_BYTES) {
+      throw new Error("模板文件不能超过 10MB。");
+    }
     const filePath = join(process.cwd(), config.storage.templatesDir, safeName);
     await mkdir(join(process.cwd(), config.storage.templatesDir), { recursive: true });
-    await writeFile(filePath, Buffer.from(input.fileContentBase64, "base64"));
+    await writeFile(filePath, buffer);
 
     const template: WordTemplateDefinition = {
       id: templateId,
@@ -222,6 +250,11 @@ export class TemplateService {
     };
 
     this.templates.set(template.id, template);
+    this.persist();
     return template;
+  }
+
+  private persist() {
+    this.store.save(this.list());
   }
 }

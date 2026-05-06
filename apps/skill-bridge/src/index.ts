@@ -3,8 +3,19 @@ import { OpenSearchProvider } from "@studio/providers";
 import type { SearchDocument } from "@studio/shared";
 
 const app = Fastify({ logger: true });
+const token = process.env.SKILL_BRIDGE_TOKEN;
 
 app.get("/health", async () => ({ ok: true }));
+
+app.addHook("onRequest", async (request, reply) => {
+  if (!token || request.url === "/health") {
+    return;
+  }
+
+  if (request.headers.authorization !== `Bearer ${token}`) {
+    await reply.code(401).send({ message: "未授权，请提供有效 Skill Bridge Token。" });
+  }
+});
 
 app.post("/search", async (request) => {
   const body = request.body as {
@@ -40,13 +51,27 @@ app.post("/search", async (request) => {
 });
 
 const port = Number(process.env.SKILL_BRIDGE_PORT ?? 4200);
+const host = process.env.SKILL_BRIDGE_HOST ?? "127.0.0.1";
+assertSafeServerBinding(host, token);
 
 app
-  .listen({ port, host: "0.0.0.0" })
+  .listen({ port, host })
   .catch((error) => {
     console.error(error);
     process.exit(1);
   });
+
+function assertSafeServerBinding(bindHost: string, bridgeToken: string | undefined) {
+  const normalizedHost = bindHost.trim().toLowerCase();
+  const isLoopback =
+    normalizedHost === "127.0.0.1" ||
+    normalizedHost === "localhost" ||
+    normalizedHost === "::1";
+
+  if (!isLoopback && !bridgeToken) {
+    throw new Error("SKILL_BRIDGE_HOST 绑定到非本机地址时必须设置 SKILL_BRIDGE_TOKEN。");
+  }
+}
 
 const mapDocument = (doc: SearchDocument) => ({
   url: doc.url,

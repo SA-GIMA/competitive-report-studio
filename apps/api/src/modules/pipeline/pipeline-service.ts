@@ -65,7 +65,7 @@ export class PipelineService {
   }
 
   async previewRequirement(requirement: NaturalLanguageRequirement) {
-    const pipeline = this.createPipeline(requirement.retrievalMode ?? "mock");
+    const pipeline = await this.createPipeline(requirement.retrievalMode ?? "mock");
     const routing = this.modelService.getRouting();
     const normalizedRequirement = this.normalizeRequirement(requirement);
     const parseResult = await pipeline.parseRequirement(normalizedRequirement, routing.plannerModelId);
@@ -173,6 +173,7 @@ export class PipelineService {
         errorMessage: undefined,
         failureCategory: undefined,
         retryable: true,
+        autoResumeAttempts: 0,
         selectedCompetitors: undefined,
         reportId: undefined
       });
@@ -185,7 +186,8 @@ export class PipelineService {
       progressPercent: 2,
       errorMessage: undefined,
       failureCategory: undefined,
-      retryable: true
+      retryable: true,
+      autoResumeAttempts: mode === "resume" ? this.taskService.get(taskId).autoResumeAttempts ?? 0 : 0
     });
 
     this.runControls.set(taskId, { pauseRequested: false, running: true });
@@ -218,7 +220,10 @@ export class PipelineService {
       progressPercent: 5
     });
 
-    const pipeline = this.createPipeline(task.retrievalMode ?? "mock");
+    const pipeline = await this.createPipeline(task.retrievalMode ?? "mock");
+    let autoResumeRequested = false;
+    let autoResumeDelayMs = 1200;
+
     try {
       const result = await this.executeWithCheckpoint({
         taskId,
@@ -240,6 +245,7 @@ export class PipelineService {
         errorMessage: undefined,
         failureCategory: undefined,
         retryable: true,
+        autoResumeAttempts: 0,
         executionCheckpoint: {
           ...result.checkpoint,
           stage: "completed"
@@ -255,27 +261,68 @@ export class PipelineService {
           status: "paused",
           currentStep: "任务已暂停，可继续执行",
           retryable: true,
+          autoResumeAttempts: 0,
           progressPercent: latestTask.progressPercent
         });
         return;
       }
       const failure = classifyTaskFailure(error);
       const latestTask = this.taskService.get(taskId);
-      this.taskService.update(taskId, {
-        status: "failed",
-        reportId,
-        errorMessage: error instanceof Error ? error.message : "任务执行失败",
-        failureCategory: failure.category,
-        retryable: failure.retryable,
-        currentStep: latestTask.currentStep ?? "执行失败",
-        progressPercent: latestTask.progressPercent ?? 0
-      });
+      const nextAutoResumeAttempt = (latestTask.autoResumeAttempts ?? 0) + 1;
+      const shouldAutoResume =
+        failure.retryable &&
+        ["provider", "temporary"].includes(failure.category) &&
+        Boolean(latestTask.executionCheckpoint?.stage) &&
+        nextAutoResumeAttempt <= 3;
+
+      if (shouldAutoResume) {
+        autoResumeRequested = true;
+        autoResumeDelayMs = 1200 * nextAutoResumeAttempt;
+        this.taskService.update(taskId, {
+          status: "queued",
+          reportId,
+          errorMessage: error instanceof Error ? error.message : "任务执行失败",
+          failureCategory: failure.category,
+          retryable: true,
+          autoResumeAttempts: nextAutoResumeAttempt,
+          currentStep: `检测到可恢复异常，系统将在短暂等待后自动继续执行（第 ${nextAutoResumeAttempt}/3 次）`,
+          progressPercent: latestTask.progressPercent ?? 0
+        });
+      } else {
+        this.taskService.update(taskId, {
+          status: "failed",
+          reportId,
+          errorMessage: error instanceof Error ? error.message : "任务执行失败",
+          failureCategory: failure.category,
+          retryable: failure.retryable,
+          autoResumeAttempts: nextAutoResumeAttempt > 3 ? 0 : latestTask.autoResumeAttempts ?? 0,
+          currentStep: latestTask.currentStep ?? "执行失败",
+          progressPercent: latestTask.progressPercent ?? 0
+        });
+      }
     } finally {
       const control = this.runControls.get(taskId);
       if (control) {
         control.running = false;
         control.pauseRequested = false;
       }
+    }
+
+    if (autoResumeRequested) {
+      setTimeout(() => {
+        void this.startTask(taskId, "resume").catch((resumeError) => {
+          const failedTask = this.taskService.get(taskId);
+          const failure = classifyTaskFailure(resumeError);
+          this.taskService.update(taskId, {
+            status: "failed",
+            errorMessage: resumeError instanceof Error ? resumeError.message : "任务自动继续执行失败",
+            failureCategory: failure.category,
+            retryable: failure.retryable,
+            currentStep: failedTask.currentStep ?? "执行失败",
+            progressPercent: failedTask.progressPercent ?? 0
+          });
+        });
+      }, autoResumeDelayMs);
     }
   }
 
@@ -433,8 +480,19 @@ export class PipelineService {
       (inputMode === "document_upload"
         ? sources
         : await input.pipeline.collectSources(chartQueries));
-    const chartSpecs =
+    const baseChartSpecs =
       checkpoint.charts ?? input.pipeline.buildCharts(parseResult, competitorProfiles, chartSources);
+    const chartSpecs =
+      checkpoint.charts ??
+      (input.requirement.autoFillChartData
+        ? await input.pipeline.completeChartSpecsWithKnowledge(
+            parseResult,
+            competitorProfiles,
+            baseChartSpecs,
+            chartSources,
+            input.routing.writerModelId
+          )
+        : baseChartSpecs);
     checkpoint = this.saveCheckpoint(input.taskId, {
       ...checkpoint,
       stage: "render_charts",
@@ -596,10 +654,13 @@ export class PipelineService {
   }
 
   private saveCheckpoint(taskId: string, checkpoint: NonNullable<ReturnType<TaskService["get"]>["executionCheckpoint"]>) {
+    const latestTask = this.taskService.get(taskId);
     this.taskService.update(taskId, {
       executionCheckpoint: checkpoint,
       parseResult: checkpoint.parseResult,
-      currentStep: stageToMessage(checkpoint.stage)
+      currentStep: shouldPreserveDetailedStep(latestTask.currentStep)
+        ? latestTask.currentStep
+        : stageToMessage(checkpoint.stage)
     });
     return checkpoint;
   }
@@ -611,10 +672,12 @@ export class PipelineService {
     }
   }
 
-  private createPipeline(retrievalMode: RetrievalMode) {
+  private async createPipeline(retrievalMode: RetrievalMode) {
     return new CompetitiveAnalysisPipeline({
       providerResolver: (modelId) => this.modelService.getProvider(modelId),
-      retrievalPipeline: new RetrievalPipeline(this.createSearchProviders(retrievalMode)),
+      retrievalPipeline: new RetrievalPipeline(
+        await this.createSearchProviders(retrievalMode)
+      ),
       chartRenderer: new PngChartRenderer(),
       wordTemplateEngine: new WordTemplateEngine(),
       modelConfigs: this.modelService.getConfigsMap()
@@ -736,7 +799,7 @@ export class PipelineService {
     return Promise.all(fullMaterials.map((material) => extractUploadedMaterial(material)));
   }
 
-  private createSearchProviders(retrievalMode: RetrievalMode): SearchProvider[] {
+  private async createSearchProviders(retrievalMode: RetrievalMode): Promise<SearchProvider[]> {
     const config = this.retrievalConfigService.get();
     const providers: SearchProvider[] = [];
 
@@ -756,17 +819,14 @@ export class PipelineService {
     }
 
     if (retrievalMode === "searxng") {
+      if (config.searxngMode === "embedded") {
+        await this.retrievalConfigService.ensureEmbeddedSearxngReady();
+      }
       if (!config.searxngEndpoint) {
         throw new Error("未配置 SearXNG Endpoint，无法使用 SearXNG 检索模式。");
       }
       assertValidHttpUrl(config.searxngEndpoint, "SearXNG Endpoint");
-      return [
-        new SearxngSearchProvider({
-          endpoint: config.searxngEndpoint,
-          apiKey: config.searxngKey,
-          defaultLanguage: "zh-CN"
-        })
-      ];
+      return [new SearxngSearchProvider(this.retrievalConfigService.getSearxngProviderOptions())];
     }
 
     if (retrievalMode === "search_api" || retrievalMode === "hybrid") {
@@ -871,10 +931,21 @@ const stageToMessage = (stage: string) => {
   }
 };
 
+const shouldPreserveDetailedStep = (step?: string) =>
+  Boolean(
+    step &&
+      (/抽取竞品画像|生成图表|撰写章节|解析上传材料|正在解析上传材料/.test(step) ||
+        /第 \d+\/3 次/.test(step))
+  );
+
 const classifyTaskFailure = (
   error: unknown
 ): { category: TaskFailureCategory; retryable: boolean } => {
   const message = error instanceof Error ? error.message : String(error);
+
+  if (/LLM 返回内容为空|empty response|模型返回为空/i.test(message)) {
+    return { category: "provider", retryable: true };
+  }
 
   if (
     /未配置|不存在|请先保存|路由引用了不存在|模型不存在|模板不存在|上传材料不存在/.test(
@@ -884,7 +955,7 @@ const classifyTaskFailure = (
     return { category: "configuration", retryable: false };
   }
 
-  if (/请输入|至少|为空|缺少|无效|不存在:/.test(message)) {
+  if (/请输入|至少|缺少|无效|不存在:/.test(message)) {
     return { category: "input", retryable: false };
   }
 

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { getAppConfig } from "@studio/config";
 import { randomUUID } from "node:crypto";
 import { parseJsonWithRepair } from "@studio/orchestrator";
 import type {
@@ -7,13 +9,20 @@ import type {
   GanttTaskItem
 } from "@studio/shared";
 import { ModelService } from "../models/model-service.ts";
+import { GanttStateStore } from "./gantt-state-store.ts";
 
 export class GanttService {
   private readonly modelService: ModelService;
   private readonly plans = new Map<string, GanttPlan>();
+  private readonly store = new GanttStateStore(
+    join(process.cwd(), getAppConfig().storage.appStateDir, "gantt-plans.json")
+  );
 
   constructor(modelService: ModelService) {
     this.modelService = modelService;
+    for (const plan of this.store.load()) {
+      this.plans.set(plan.id, plan);
+    }
   }
 
   async generatePlan(input: GanttPlanningRequest): Promise<GanttPlan> {
@@ -56,6 +65,7 @@ export class GanttService {
       tasks: scheduledTasks
     };
     this.plans.set(plan.id, plan);
+    this.persist();
     return plan;
   }
 
@@ -71,6 +81,25 @@ export class GanttService {
       throw new Error(`甘特图计划不存在: ${planId}`);
     }
     return plan;
+  }
+
+  updatePlan(
+    planId: string,
+    patch: Partial<Pick<GanttPlan, "projectName" | "projectSummary" | "startDate" | "endDate" | "targetEndDate" | "tasks" | "assumptions" | "riskNotes">>
+  ) {
+    const current = this.getPlan(planId);
+    const next: GanttPlan = {
+      ...current,
+      ...patch,
+      tasks: patch.tasks ?? current.tasks
+    };
+    this.plans.set(planId, next);
+    this.persist();
+    return next;
+  }
+
+  private persist() {
+    this.store.save(this.listPlans());
   }
 }
 

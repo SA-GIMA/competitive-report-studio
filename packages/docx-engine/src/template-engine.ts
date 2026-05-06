@@ -4,7 +4,9 @@ import MarkdownIt from "markdown-it";
 import {
   AlignmentType,
   Document,
+  ExternalHyperlink,
   ImageRun,
+  LineRuleType,
   Packer,
   Paragraph,
   Table,
@@ -28,10 +30,16 @@ type ParagraphSpacingOverrides = {
   after?: number;
   firstLine?: number;
 };
-const BODY_FONT = "宋体";
+const BODY_FONT = "仿宋_GB2312";
+const TITLE_FONT = "华文中宋";
+const HEADING_LEVEL_1_FONT = "黑体";
+const HEADING_LEVEL_2_FONT = "楷体_GB2312";
+const REFERENCE_FONT = "仿宋_GB2312";
 const BODY_TEXT_SIZE = 32;
+const REFERENCE_TEXT_SIZE = 28;
 const TITLE_TEXT_SIZE = 44;
-const LINE_SPACING = 360;
+const HEADING_TEXT_SIZE = 32;
+const LINE_SPACING = 600;
 const FIRST_LINE_INDENT = 640;
 const markdown = new MarkdownIt({
   html: false,
@@ -50,12 +58,16 @@ export interface RenderDocxInput {
 
 export class WordTemplateEngine {
   async render(input: RenderDocxInput): Promise<ReportArtifact> {
+    const normalizedTitle = normalizeReportTitle(input.reportDraft.title || input.title);
+    const fileTimestamp = formatFileTimestamp(new Date());
+    const editableFileName = `${buildSafeFileNameBase(normalizedTitle, fileTimestamp)}-可编辑.docx`;
+    const finalFileName = `${buildSafeFileNameBase(normalizedTitle, fileTimestamp)}.docx`;
     const editableDocxPath = join(input.outputDir, `${input.reportId}.editable.docx`);
     const finalDocxPath = join(input.outputDir, `${input.reportId}.final.docx`);
 
     await mkdir(dirname(editableDocxPath), { recursive: true });
 
-    const document = await this.buildDocument(input.reportDraft, input.chartAssets);
+    const document = await this.buildDocument(input.reportDraft, input.chartAssets, normalizedTitle);
     const buffer = await Packer.toBuffer(document);
 
     await writeFile(editableDocxPath, buffer);
@@ -65,6 +77,8 @@ export class WordTemplateEngine {
       reportId: input.reportId,
       editableDocxPath,
       finalDocxPath,
+      editableFileName,
+      finalFileName,
       chartAssets: input.chartAssets,
       generatedAt: new Date().toISOString()
     };
@@ -89,24 +103,30 @@ export class WordTemplateEngine {
   buildSourceAppendix(sources: SourceCitation[]) {
     return sources.map((source, index) => ({
       index: index + 1,
-      line: `${source.title} | ${source.url} | 抓取时间：${source.crawledAt}`
+      title: source.title,
+      url: source.url,
+      crawledAt: source.crawledAt
     }));
   }
 
-  private async buildDocument(draft: ReportDraft, chartAssets: GeneratedChartAsset[]) {
+  private async buildDocument(
+    draft: ReportDraft,
+    chartAssets: GeneratedChartAsset[],
+    normalizedTitle: string
+  ) {
     const chartBlocks = await this.buildChartBlocks(chartAssets);
 
     return new Document({
       creator: "Competitive Report Studio",
-      title: draft.title,
+      title: normalizedTitle,
       description: "自动生成的中文竞品分析报告",
       sections: [
         {
           children: [
-            buildTitleParagraph(draft.title),
+            buildReportTitleParagraph(normalizedTitle),
             buildBodyParagraph(draft.executiveSummary, { after: 260 }),
             ...draft.sections.flatMap((section) => this.buildSectionBlocks(section, chartBlocks)),
-            buildTitleParagraph("附录：参考资料"),
+            buildHeadingParagraph("参考文献", 1),
             ...this.buildAppendixParagraphs(draft.appendixSources)
           ]
         }
@@ -119,8 +139,8 @@ export class WordTemplateEngine {
     chartBlocks: Map<string, Paragraph[]>
   ): Array<Paragraph | Table> {
     const blocks: Array<Paragraph | Table> = [
-      buildTitleParagraph(section.title),
-      buildBodyParagraph(section.summary, { after: 180 }, { bold: true }),
+      buildHeadingParagraph(section.title, 1),
+      buildBodyParagraph(section.summary, { after: 180 }),
       ...renderMarkdownBlocks(section.bodyMarkdown)
     ];
 
@@ -172,9 +192,8 @@ export class WordTemplateEngine {
   }
 
   private buildAppendixParagraphs(sources: SourceCitation[]) {
-    return this.buildSourceAppendix(sources).map(
-      (entry) =>
-        buildBodyParagraph(`${entry.index}. ${entry.line}`, { after: 120, firstLine: 0 })
+    return this.buildSourceAppendix(sources).flatMap((entry) =>
+      buildReferenceEntryParagraphs(entry)
     );
   }
 
@@ -300,21 +319,21 @@ const renderMarkdownBlocks = (markdown: string): Array<Paragraph | Table> => {
 
     if (line.startsWith("### ")) {
       blocks.push(
-        buildTitleParagraph(stripMarkdownSyntax(line.replace(/^###\s+/, "")))
+        buildHeadingParagraph(stripMarkdownSyntax(line.replace(/^###\s+/, "")), 2)
       );
       continue;
     }
 
     if (line.startsWith("## ")) {
       blocks.push(
-        buildTitleParagraph(stripMarkdownSyntax(line.replace(/^##\s+/, "")))
+        buildHeadingParagraph(stripMarkdownSyntax(line.replace(/^##\s+/, "")), 2)
       );
       continue;
     }
 
     if (line.startsWith("# ")) {
       blocks.push(
-        buildTitleParagraph(stripMarkdownSyntax(line.replace(/^#\s+/, "")))
+        buildHeadingParagraph(stripMarkdownSyntax(line.replace(/^#\s+/, "")), 1)
       );
       continue;
     }
@@ -520,18 +539,41 @@ const pushTextRun = (
   });
 };
 
-const buildTitleParagraph = (text: string) =>
+const buildReportTitleParagraph = (text: string) =>
   new Paragraph({
     alignment: AlignmentType.CENTER,
     spacing: {
       line: LINE_SPACING,
+      lineRule: LineRuleType.EXACT,
       before: 200,
       after: 200
     },
     children: [
       createTextRun(text, {
+        font: TITLE_FONT,
         bold: true,
         size: TITLE_TEXT_SIZE
+      })
+    ]
+  });
+
+const buildHeadingParagraph = (text: string, level: 1 | 2) =>
+  new Paragraph({
+    alignment: AlignmentType.LEFT,
+    spacing: {
+      line: LINE_SPACING,
+      lineRule: LineRuleType.EXACT,
+      before: level === 1 ? 180 : 120,
+      after: 140
+    },
+    indent: {
+      firstLine: 0
+    },
+    children: [
+      createTextRun(text, {
+        font: level === 1 ? HEADING_LEVEL_1_FONT : HEADING_LEVEL_2_FONT,
+        bold: true,
+        size: HEADING_TEXT_SIZE
       })
     ]
   });
@@ -552,11 +594,57 @@ const buildTableParagraph = (text: string, bold = false) =>
     children: [createTextRun(text, { bold })]
   });
 
+const buildReferenceParagraph = (text: string) =>
+  new Paragraph({
+    ...createBodyParagraphOptions({ after: 120, firstLine: 0 }),
+    children: [
+      createTextRun(text, {
+        font: REFERENCE_FONT,
+        size: REFERENCE_TEXT_SIZE
+      })
+    ]
+  });
+
+const buildReferenceEntryParagraphs = (entry: {
+  index: number;
+  title: string;
+  url: string;
+  crawledAt: string;
+}) => [
+  buildReferenceParagraph(`${entry.index}. ${entry.title}`),
+  new Paragraph({
+    ...createBodyParagraphOptions({ after: 60, firstLine: 0 }),
+    children: [
+      new ExternalHyperlink({
+        link: entry.url,
+        children: [
+          createTextRun(entry.url, {
+            font: REFERENCE_FONT,
+            size: REFERENCE_TEXT_SIZE,
+            color: "2563EB",
+            underline: {}
+          })
+        ]
+      })
+    ]
+  }),
+  new Paragraph({
+    ...createBodyParagraphOptions({ after: 180, firstLine: 0 }),
+    children: [
+      createTextRun(`抓取时间：${entry.crawledAt}`, {
+        font: REFERENCE_FONT,
+        size: REFERENCE_TEXT_SIZE
+      })
+    ]
+  })
+];
+
 const createBodyParagraphOptions = (
   spacingOverrides: ParagraphSpacingOverrides = {}
 ) => ({
   spacing: {
     line: LINE_SPACING,
+    lineRule: LineRuleType.EXACT,
     after: 120,
     before: 0,
     ...spacingOverrides
@@ -578,6 +666,27 @@ const defaultTextRunStyle = (): TextRunStyle => ({
   font: BODY_FONT,
   size: BODY_TEXT_SIZE
 });
+
+const normalizeReportTitle = (title: string) =>
+  title
+    .replace(/\s*（[^（）]*）/g, "")
+    .replace(/\s*\([^()]*\)/g, "")
+    .replace(/\s*【[^【】]*】/g, "")
+    .replace(/\s*\[[^\[\]]*\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const formatFileTimestamp = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}${month}${day}${hours}${minutes}`;
+};
+
+const buildSafeFileNameBase = (title: string, timestamp: string) =>
+  `${title.replace(/[\\/:*?"<>|]/g, "").trim() || "竞品分析报告"}${timestamp}`;
 
 const stripMarkdownSyntax = (value: string) =>
   value

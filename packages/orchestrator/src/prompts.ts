@@ -40,6 +40,7 @@ export const reportWritingSystemPrompt = `
 export const reportSummarySystemPrompt = `
 你是中文咨询顾问，需要为竞品分析报告生成标题和执行摘要。
 请返回严格 JSON，包含 title 和 executiveSummary。
+title 不要包含任何括号或括号内补充信息，例如年份、时间范围、版本说明等都不要写在标题里。
 `;
 
 export const reportSectionReviewSystemPrompt = `

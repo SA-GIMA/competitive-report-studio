@@ -1,5 +1,6 @@
 import type { SearchDocument, SearchQuery } from "@studio/shared";
 import type { SearchProvider } from "./types.ts";
+import { assertSafeHttpUrl } from "../url-security.ts";
 
 interface SerpApiBaiduSearchProviderOptions {
   apiKey: string;
@@ -24,7 +25,7 @@ export class SerpApiBaiduSearchProvider implements SearchProvider {
   }
 
   async search(query: SearchQuery): Promise<SearchDocument[]> {
-    const url = new URL(this.options.endpoint ?? "https://serpapi.com/search");
+    const url = await assertSafeHttpUrl(this.options.endpoint ?? "https://serpapi.com/search");
     url.searchParams.set("engine", "baidu");
     url.searchParams.set("q", query.keyword);
     url.searchParams.set("api_key", this.options.apiKey);
