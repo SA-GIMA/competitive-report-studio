@@ -66,18 +66,24 @@ function updateTask(
       return task;
     }
     const next = { ...task, ...patch };
-    if (patch.startDate || patch.endDate) {
+    if (patch.startDate && !patch.endDate) {
+      next.endDate = addCalendarDays(next.startDate, Math.max(1, next.durationDays) - 1);
+    } else if (patch.endDate && !patch.startDate) {
+      next.durationDays = calculateDurationDays(next.startDate, next.endDate);
+    } else if (patch.startDate && patch.endDate) {
       next.durationDays = calculateDurationDays(next.startDate, next.endDate);
     } else if (patch.durationDays) {
       next.endDate = addCalendarDays(next.startDate, Math.max(1, patch.durationDays) - 1);
     }
     return next;
   });
+  const allStarts = tasks.map((t) => t.startDate);
+  const allEnds = tasks.map((t) => t.endDate);
   plan.value = {
     ...plan.value,
     tasks,
-    startDate: tasks[0]?.startDate ?? plan.value.startDate,
-    endDate: tasks[tasks.length - 1]?.endDate ?? plan.value.endDate
+    startDate: allStarts.length ? allStarts.reduce((a, b) => (a < b ? a : b)) : plan.value.startDate,
+    endDate: allEnds.length ? allEnds.reduce((a, b) => (a > b ? a : b)) : plan.value.endDate
   };
 }
 
@@ -119,6 +125,13 @@ function calculateDurationDays(startDate: string, endDate: string) {
 function addCalendarDays(startDate: string, offset: number) {
   const next = new Date(`${startDate}T00:00:00`);
   next.setDate(next.getDate() + offset);
-  return next.toISOString().slice(0, 10);
+  return formatDateOnly(next);
+}
+
+function formatDateOnly(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 </script>

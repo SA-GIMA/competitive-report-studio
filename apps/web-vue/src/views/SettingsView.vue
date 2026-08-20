@@ -21,11 +21,11 @@
       <div v-if="activeSettingSection === 'model_access'" class="split">
         <SectionCard title="模型列表" description="这里展示已保存的模型连接。">
           <div class="stack">
-            <button
+            <div
               v-for="model in models"
               :key="model.id"
               class="list-item"
-              style="text-align: left; cursor: pointer"
+              style="text-align: left; cursor: pointer; position: relative"
               :style="{ outline: model.id === selectedId ? '2px solid rgba(37,99,235,.35)' : 'none' }"
               @click="selectModel(model.id)"
             >
@@ -35,7 +35,16 @@
                 <span class="status">{{ model.provider }}</span>
                 <span class="status" :class="{ success: model.enabled }">{{ model.enabled ? "启用" : "停用" }}</span>
               </div>
-            </button>
+              <button
+                v-if="model.provider !== 'demo'"
+                type="button"
+                class="button ghost small"
+                style="position: absolute; top: 12px; right: 12px; color: #ef4444; border-color: transparent"
+                @click.stop="deleteModel(model.id)"
+              >
+                删除
+              </button>
+            </div>
             <button class="button ghost" @click="createNewModel">新增模型</button>
           </div>
         </SectionCard>
@@ -519,6 +528,23 @@ function selectModel(modelId: string) {
   discoveredModels.value = [];
   message.value = "";
   error.value = "";
+}
+
+async function deleteModel(modelId: string) {
+  if (!window.confirm(`确定要删除模型 ${modelId} 吗？`)) {
+    return;
+  }
+  try {
+    await apiFetch(`/api/models/${modelId}`, { method: "DELETE" });
+    message.value = `模型 ${modelId} 已删除`;
+    if (selectedId.value === modelId) {
+      selectedId.value = "";
+      draft.value = { ...emptyModel };
+    }
+    await load();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "删除模型失败";
+  }
 }
 
 async function saveModel() {

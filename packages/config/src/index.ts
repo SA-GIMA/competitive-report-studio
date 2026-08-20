@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 
 export interface StorageConfig {
@@ -90,13 +91,7 @@ const parseCorsOrigins = (raw: string | undefined, webBaseUrl: string) =>
   Array.from(
     new Set(
       [
-        webBaseUrl,
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
+        ...defaultCorsOrigins(webBaseUrl),
         ...(raw?.split(",") ?? [])
       ]
         .map((item) => item.trim())
@@ -104,10 +99,38 @@ const parseCorsOrigins = (raw: string | undefined, webBaseUrl: string) =>
     )
   );
 
+const defaultCorsOrigins = (webBaseUrl: string) => [
+  webBaseUrl,
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:3001",
+  "http://127.0.0.1:3001",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  ...getLocalNetworkIps().flatMap((ip) => [
+    `http://${ip}:3000`,
+    `http://${ip}:3001`,
+    `http://${ip}:5173`
+  ])
+];
+
 const normalizeCorsOrigins = (persistedOrigins: string[] | undefined, webBaseUrl: string) =>
-  persistedOrigins?.length
-    ? Array.from(new Set(persistedOrigins.map((item) => item.trim()).filter(Boolean)))
-    : parseCorsOrigins(undefined, webBaseUrl);
+  Array.from(
+    new Set(
+      [
+        ...defaultCorsOrigins(webBaseUrl),
+        ...(persistedOrigins ?? [])
+      ]
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  );
+
+const getLocalNetworkIps = () =>
+  Object.values(networkInterfaces())
+    .flatMap((items) => items ?? [])
+    .filter((item) => item.family === "IPv4" && !item.internal)
+    .map((item) => item.address);
 
 const readPersistedNetworkAccessConfig = (appStateDir: string): PersistedNetworkAccessConfig => {
   const filePath = join(process.cwd(), appStateDir, "network-access-config.json");

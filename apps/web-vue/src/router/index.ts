@@ -1,6 +1,9 @@
 import { createRouter, createWebHashHistory, createWebHistory } from "vue-router";
 import DashboardView from "@/views/DashboardView.vue";
 import CompetitiveReportOverviewView from "@/views/CompetitiveReportOverviewView.vue";
+import FeatureListCreateView from "@/views/FeatureListCreateView.vue";
+import FeatureListDetailView from "@/views/FeatureListDetailView.vue";
+import FeatureListHistoryView from "@/views/FeatureListHistoryView.vue";
 import FeatureListView from "@/views/FeatureListView.vue";
 import GanttOverviewView from "@/views/GanttOverviewView.vue";
 import GanttCreateView from "@/views/GanttCreateView.vue";
@@ -22,6 +25,9 @@ const router = createRouter({
     { path: "/", component: DashboardView },
     { path: "/competitive-report", component: CompetitiveReportOverviewView },
     { path: "/feature-list", component: FeatureListView },
+    { path: "/feature-list/new", component: FeatureListCreateView },
+    { path: "/feature-list/history", component: FeatureListHistoryView },
+    { path: "/feature-list/history/:id", component: FeatureListDetailView },
     { path: "/settings", component: SettingsView },
     { path: "/tasks", component: TaskHistoryView },
     { path: "/tasks/new", component: TaskCreateView },

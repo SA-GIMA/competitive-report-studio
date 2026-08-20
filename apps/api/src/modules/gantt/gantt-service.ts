@@ -28,12 +28,13 @@ export class GanttService {
   async generatePlan(input: GanttPlanningRequest): Promise<GanttPlan> {
     const normalized = normalizeRequest(input);
     const routing = this.modelService.getRouting();
-    const config = this.modelService.getConfigsMap()[routing.plannerModelId];
+    const modelId = normalized.modelId || routing.plannerModelId;
+    const config = this.modelService.getConfigsMap()[modelId];
     if (!config) {
-      throw new Error("未找到可用的规划模型，无法生成甘特图。");
+      throw new Error(`未找到指定的规划模型 (${modelId})，无法生成甘特图。`);
     }
 
-    const json = await this.modelService.getProvider(routing.plannerModelId).generateText(config, {
+    const json = await this.modelService.getProvider(modelId).generateText(config, {
       systemPrompt: ganttPlanningSystemPrompt,
       userPrompt: JSON.stringify(normalized),
       responseFormat: "json"
@@ -42,8 +43,8 @@ export class GanttService {
     const parsed = parseGanttDraft(json);
     const draftedTasks = ensureTaskDrafts(parsed.tasks, normalized);
     const scheduledTasks = scheduleTasks(draftedTasks, normalized);
-    const projectStart = scheduledTasks[0]?.startDate ?? normalized.targetEndDate;
-    const projectEnd = scheduledTasks[scheduledTasks.length - 1]?.endDate ?? normalized.targetEndDate;
+    const projectStart = getMinDate(scheduledTasks.map((task) => task.startDate)) ?? normalized.targetEndDate;
+    const projectEnd = getMaxDate(scheduledTasks.map((task) => task.endDate)) ?? normalized.targetEndDate;
 
     const plan: GanttPlan = {
       id: `gantt-${randomUUID().slice(0, 8)}`,
@@ -223,45 +224,94 @@ const scheduleTasks = (
   tasks: GanttTaskDraft[],
   input: GanttPlanningRequest
 ): GanttTaskItem[] => {
-  const durations = tasks.map((task) => Math.max(1, task.durationDays));
-  const targetEndDate = parseDateOnly(input.targetEndDate);
-  const totalDuration = durations.reduce((sum, value) => sum + value, 0);
-  const start =
-    input.planningMode === "forward"
-      ? parseDateOnly(input.startDate || input.targetEndDate)
-      : moveByWorkingDays(targetEndDate, -(Math.max(totalDuration - 1, 0)), input.workingDaysMode);
+  if (tasks.length === 0) return [];
 
-  const result: GanttTaskItem[] = [];
-  let cursor = start;
+  const taskMap = new Map<string, GanttTaskItem>();
 
-  for (const task of tasks) {
-    const duration = Math.max(1, task.durationDays);
-    const taskStart = cursor;
-    const taskEnd = moveByWorkingDays(taskStart, duration - 1, input.workingDaysMode);
-    result.push({
-      ...task,
+  // 1. Forward pass using a dummy start date to calculate relative working day positions
+  const dummyStart = new Date("2000-01-01T00:00:00");
+
+  for (const draft of tasks) {
+    let earliestStart = dummyStart;
+    if (draft.dependsOn && draft.dependsOn.length > 0) {
+      let maxEnd = dummyStart;
+      for (const depId of draft.dependsOn) {
+        const depTask = taskMap.get(depId);
+        if (depTask) {
+          const depEnd = parseDateOnly(depTask.endDate);
+          const next = nextWorkingDay(depEnd, input.workingDaysMode);
+          if (next > maxEnd) maxEnd = next;
+        }
+      }
+      earliestStart = maxEnd;
+    } else {
+      earliestStart = alignToWorkingDay(dummyStart, input.workingDaysMode, 1);
+    }
+
+    const duration = Math.max(1, draft.durationDays);
+    const taskEnd = moveByWorkingDays(earliestStart, duration - 1, input.workingDaysMode);
+
+    taskMap.set(draft.id, {
+      ...draft,
       durationDays: duration,
-      startDate: formatDateOnly(taskStart),
+      startDate: formatDateOnly(earliestStart),
       endDate: formatDateOnly(taskEnd)
     });
-    cursor = nextWorkingDay(taskEnd, input.workingDaysMode);
   }
 
-  if (input.planningMode === "backward" && result.length > 0) {
-    const last = result[result.length - 1];
-    const adjustedEnd = formatDateOnly(targetEndDate);
-    const delta = differenceInDays(parseDateOnly(last.endDate), targetEndDate);
-    if (delta !== 0) {
-      return result.map((task) => ({
-        ...task,
-        startDate: formatDateOnly(moveByCalendarDays(parseDateOnly(task.startDate), -delta)),
-        endDate: formatDateOnly(moveByCalendarDays(parseDateOnly(task.endDate), -delta))
-      }));
+  const scheduled = Array.from(taskMap.values());
+
+  // Find overall min/max in dummy schedule
+  const relStarts = scheduled.map((t) => parseDateOnly(t.startDate));
+  const relEnds = scheduled.map((t) => parseDateOnly(t.endDate));
+  const relMinStart = new Date(Math.min(...relStarts.map((d) => d.getTime())));
+  const relMaxEnd = new Date(Math.max(...relEnds.map((d) => d.getTime())));
+
+  // 2. Determine actual project start date
+  let actualProjectStart: Date;
+  if (input.planningMode === "forward") {
+    actualProjectStart = alignToWorkingDay(
+      parseDateOnly(input.startDate || input.targetEndDate),
+      input.workingDaysMode,
+      1
+    );
+  } else {
+    // Backward planning: align relMaxEnd to targetEndDate
+    const targetEnd = alignToWorkingDay(parseDateOnly(input.targetEndDate), input.workingDaysMode, -1);
+    const totalWorkingDays = countWorkingDays(relMinStart, relMaxEnd, input.workingDaysMode);
+    actualProjectStart = moveByWorkingDays(targetEnd, -(totalWorkingDays - 1), input.workingDaysMode);
+  }
+
+  // 3. Shift all tasks to their final positions based on actual project start
+  return scheduled.map((task) => {
+    const startRelOffset = countWorkingDays(relMinStart, parseDateOnly(task.startDate), input.workingDaysMode) - 1;
+    const endRelOffset = countWorkingDays(relMinStart, parseDateOnly(task.endDate), input.workingDaysMode) - 1;
+
+    const finalStart = moveByWorkingDays(actualProjectStart, startRelOffset, input.workingDaysMode);
+    const finalEnd = moveByWorkingDays(actualProjectStart, endRelOffset, input.workingDaysMode);
+
+    return {
+      ...task,
+      startDate: formatDateOnly(finalStart),
+      endDate: formatDateOnly(finalEnd)
+    };
+  });
+};
+
+const countWorkingDays = (
+  start: Date,
+  end: Date,
+  mode: GanttPlanningRequest["workingDaysMode"]
+): number => {
+  let count = 0;
+  let current = new Date(start);
+  while (current <= end) {
+    if (isWorkingDay(current, mode)) {
+      count++;
     }
-    result[result.length - 1] = { ...last, endDate: adjustedEnd, startDate: adjustedEnd };
+    current = moveByCalendarDays(current, 1);
   }
-
-  return result;
+  return count;
 };
 
 const buildDefaultAssumptions = (input: GanttPlanningRequest) => [
@@ -291,7 +341,24 @@ const parseDateOnly = (value: string) => {
   return date;
 };
 
-const formatDateOnly = (date: Date) => date.toISOString().slice(0, 10);
+const formatDateOnly = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getMinDate = (dates: string[]) =>
+  dates.filter(Boolean).reduce<string | undefined>(
+    (current, date) => (!current || date < current ? date : current),
+    undefined
+  );
+
+const getMaxDate = (dates: string[]) =>
+  dates.filter(Boolean).reduce<string | undefined>(
+    (current, date) => (!current || date > current ? date : current),
+    undefined
+  );
 
 const moveByWorkingDays = (date: Date, offset: number, mode: GanttPlanningRequest["workingDaysMode"]) => {
   let current = new Date(date);

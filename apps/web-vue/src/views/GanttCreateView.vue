@@ -73,12 +73,16 @@
 
             <div class="field-grid">
               <div class="field">
-                <label>总工期（天）</label>
-                <input v-model.number="form.durationDays" type="number" min="1" max="120" />
+                <label>使用模型</label>
+                <select v-model="form.modelId" class="fancy-select">
+                  <option v-for="model in availableModels" :key="model.id" :value="model.id">
+                    {{ model.label }}
+                  </option>
+                </select>
               </div>
-              <div v-if="form.planningMode === 'forward'" class="field">
-                <label>期望截止时间（可选）</label>
-                <input v-model="form.targetEndDate" type="date" />
+              <div class="field">
+                <label>工期（天）</label>
+                <input v-model.number="form.durationDays" type="number" min="1" max="120" />
               </div>
             </div>
 
@@ -162,9 +166,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
-import type { GanttPlan, GanttPlanningRequest, GanttTaskItem } from "@studio/shared";
+import type { GanttPlan, GanttPlanningRequest, GanttTaskItem, ModelConnectionConfig, ModelRoutingConfig } from "@studio/shared";
 import AppShell from "@/components/AppShell.vue";
 import GanttPlanView from "@/components/GanttPlanView.vue";
 import SectionCard from "@/components/SectionCard.vue";
@@ -177,9 +181,11 @@ const form = ref<GanttPlanningRequest>({
   durationDays: 15,
   workingDaysMode: "five_day",
   planningMode: "backward",
-  constraints: "正式验收前至少预留 1 天演练；联调与修正阶段不能少于 2 天。"
+  constraints: "正式验收前至少预留 1 天演练；联调与修正阶段不能少于 2 天。",
+  modelId: ""
 });
 const plan = ref<GanttPlan | null>(null);
+const availableModels = ref<ModelConnectionConfig[]>([]);
 const message = ref("");
 const error = ref("");
 const loading = ref(false);
@@ -188,6 +194,10 @@ const progressPercent = ref(0);
 const wizardStep = ref<"input" | "generating" | "result">("input");
 const showAdvanced = ref(false);
 let timer: number | null = null;
+
+onMounted(async () => {
+  await loadModelOptions();
+});
 
 onBeforeUnmount(() => stopProgress());
 
@@ -203,6 +213,21 @@ const resultHint = computed(() => {
   }
   return `已生成 ${plan.value.tasks.length} 个任务，时间范围 ${plan.value.startDate} 到 ${plan.value.endDate}。`;
 });
+
+const loadModelOptions = async () => {
+  try {
+    const response = await apiFetch<{
+      items: ModelConnectionConfig[];
+      routing: ModelRoutingConfig;
+    }>("/api/models");
+    availableModels.value = response.items.filter((item) => item.enabled);
+    if (!form.value.modelId && response.routing.plannerModelId) {
+      form.value.modelId = response.routing.plannerModelId;
+    }
+  } catch {
+    // Ignore load failure.
+  }
+};
 
 const startProgress = () => {
   stopProgress();
@@ -260,18 +285,24 @@ const updateTask = (
       return task;
     }
     const next = { ...task, ...patch };
-    if (patch.startDate || patch.endDate) {
+    if (patch.startDate && !patch.endDate) {
+      next.endDate = addCalendarDays(next.startDate, Math.max(1, next.durationDays) - 1);
+    } else if (patch.endDate && !patch.startDate) {
+      next.durationDays = calculateDurationDays(next.startDate, next.endDate);
+    } else if (patch.startDate && patch.endDate) {
       next.durationDays = calculateDurationDays(next.startDate, next.endDate);
     } else if (patch.durationDays) {
       next.endDate = addCalendarDays(next.startDate, Math.max(1, patch.durationDays) - 1);
     }
     return next;
   });
+  const allStarts = tasks.map((t) => t.startDate);
+  const allEnds = tasks.map((t) => t.endDate);
   plan.value = {
     ...plan.value,
     tasks,
-    startDate: tasks[0]?.startDate ?? plan.value.startDate,
-    endDate: tasks[tasks.length - 1]?.endDate ?? plan.value.endDate
+    startDate: allStarts.length ? allStarts.reduce((a, b) => (a < b ? a : b)) : plan.value.startDate,
+    endDate: allEnds.length ? allEnds.reduce((a, b) => (a > b ? a : b)) : plan.value.endDate
   };
 };
 
@@ -320,7 +351,7 @@ function formatWorkingDaysMode(mode: GanttPlanningRequest["workingDaysMode"]) {
 function buildDefaultTargetDate() {
   const date = new Date();
   date.setDate(date.getDate() + 21);
-  return date.toISOString().slice(0, 10);
+  return formatDateOnly(date);
 }
 
 function progressIncrement(current: number) {
@@ -345,6 +376,13 @@ function calculateDurationDays(startDate: string, endDate: string) {
 function addCalendarDays(startDate: string, offset: number) {
   const next = new Date(`${startDate}T00:00:00`);
   next.setDate(next.getDate() + offset);
-  return next.toISOString().slice(0, 10);
+  return formatDateOnly(next);
+}
+
+function formatDateOnly(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 </script>

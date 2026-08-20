@@ -5,6 +5,8 @@ import { basename } from "node:path";
 import { getAppConfig } from "@studio/config";
 import type {
   EffectiveModelRouting,
+  FeatureListGenerationRequest,
+  FeatureListPlan,
   GanttPlan,
   GanttPlanningRequest,
   ModelConnectionConfig,
@@ -19,6 +21,7 @@ import type {
 import { ModelService } from "./modules/models/model-service.ts";
 import { MaterialService } from "./modules/materials/material-service.ts";
 import { PipelineService } from "./modules/pipeline/pipeline-service.ts";
+import { FeatureListService } from "./modules/features/feature-list-service.ts";
 import { GanttService } from "./modules/gantt/gantt-service.ts";
 import { RetrievalConfigService } from "./modules/retrieval/retrieval-config-service.ts";
 import { ReportService } from "./modules/reports/report-service.ts";
@@ -41,6 +44,7 @@ export const buildApp = () => {
   const networkAccessConfigService = new NetworkAccessConfigService();
   const materialService = new MaterialService(config.storage.materialsDir);
   const ganttService = new GanttService(modelService);
+  const featureListService = new FeatureListService(modelService);
   const pipelineService = new PipelineService(
     modelService,
     taskService,
@@ -109,6 +113,31 @@ export const buildApp = () => {
   app.post("/api/gantt/plans", async (request) => {
     const body = request.body as GanttPlanningRequest;
     return ganttService.generatePlan(body);
+  });
+
+  app.get("/api/feature-lists", async () => ({
+    items: featureListService.listPlans()
+  }));
+
+  app.get("/api/feature-lists/:id", async (request) => {
+    const params = request.params as { id: string };
+    return featureListService.getPlan(params.id);
+  });
+
+  app.put("/api/feature-lists/:id", async (request) => {
+    const params = request.params as { id: string };
+    const body = request.body as Partial<FeatureListPlan>;
+    return featureListService.updatePlan(params.id, body);
+  });
+
+  app.post("/api/feature-lists", async (request) => {
+    const body = request.body as FeatureListGenerationRequest;
+    return featureListService.generatePlan(body);
+  });
+
+  app.get("/api/feature-lists/:id/export/markdown", async (request) => {
+    const params = request.params as { id: string };
+    return featureListService.exportMarkdown(params.id);
   });
 
   app.get("/api/models", async () => ({
@@ -212,6 +241,11 @@ export const buildApp = () => {
     const params = request.params as { id: string };
     const body = request.body as Partial<WordTemplateDefinition>;
     return templateService.update(params.id, body);
+  });
+
+  app.post("/api/templates/:id/reset-sections", async (request) => {
+    const params = request.params as { id: string };
+    return templateService.resetSections(params.id);
   });
 
   app.post("/api/templates/upload", async (request) => {

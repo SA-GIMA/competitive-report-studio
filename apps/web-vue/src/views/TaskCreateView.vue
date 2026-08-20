@@ -1,15 +1,12 @@
 <template>
-  <AppShell title="创建竞品分析报告" subtitle="按步骤完成输入、解析、确认和生成。默认配置已经准备好，只有需要时再展开高级设置。">
-    <div class="page-grid">
-      <div v-if="message" class="banner success toast">{{ message }}</div>
-      <div v-if="error" class="banner error toast">{{ error }}</div>
-
-      <div class="wizard-steps">
+  <AppShell title="创建竞品分析报告" subtitle="只需几步，即可获取深度竞品调研报告">
+    <div class="create-report-page">
+      <div class="step-tabs">
         <button
           v-for="step in wizardSteps"
           :key="step.key"
           type="button"
-          class="wizard-step"
+          class="step-tab"
           :class="{ active: wizardStep === step.key, done: step.done }"
           @click="goToStep(step.key)"
         >
@@ -18,211 +15,218 @@
         </button>
       </div>
 
-      <div v-if="wizardStep === 'input'" class="two-col">
-        <SectionCard title="第一步：说明你要分析什么" description="先选择资料来源，再用一句话描述报告目标。">
-          <template #action>
-            <div class="inline-actions">
-              <button class="button ghost" @click="showAdvanced = !showAdvanced">{{ showAdvanced ? "收起高级设置" : "高级设置" }}</button>
-              <button class="button" :disabled="loading === 'preview'" @click="parseRequirement">{{ loading === "preview" ? "解析中" : "下一步：解析需求" }}</button>
-            </div>
-          </template>
-          <div class="form-grid">
-            <div class="mode-switch">
-              <button type="button" class="mode-switch-btn" :class="{ active: inputMode === 'search' }" @click="inputMode = 'search'">
-                <strong>联网搜索任务</strong>
-                <span>自动检索公开资料，适合探索赛道和发现竞品。</span>
-              </button>
-              <button type="button" class="mode-switch-btn" :class="{ active: inputMode === 'document_upload' }" @click="inputMode = 'document_upload'">
-                <strong>上传材料任务</strong>
-                <span>直接基于已有文档抽取与写作，适合内部资料分析。</span>
-              </button>
-            </div>
-            <div class="field">
-              <label>{{ inputMode === "document_upload" ? "任务说明" : "分析需求" }}</label>
-              <textarea v-model="prompt" :placeholder="inputMode === 'document_upload' ? '例如：基于我上传的产品资料，输出一份面向领导汇报的竞品分析报告。' : '例如：帮我分析国内 AI 办公助手赛道的主要竞品，做一份面向领导汇报的报告。'" />
-            </div>
-            <div class="prompt-presets">
-              <button
-                type="button"
-                :class="{ active: templateId === 'tpl-executive-zh' }"
-                @click="applyPromptPreset('executive')"
-              >
-                汇报版
-              </button>
-              <button
-                type="button"
-                :class="{ active: templateId === 'tpl-research-zh' }"
-                @click="applyPromptPreset('research')"
-              >
-                深度研究版
-              </button>
-              <button
-                type="button"
-                :class="{ active: templateId === 'tpl-brief-zh' }"
-                @click="applyPromptPreset('brief')"
-              >
-                简洁版
-              </button>
-            </div>
-            <details v-if="showAdvanced" open class="advanced-panel">
-              <summary>高级设置</summary>
-              <div class="form-grid">
-                <div class="field-grid">
-                  <div class="field">
-                    <label>模板</label>
-                    <select v-model="templateId">
-                      <option v-for="template in templates" :key="template.id" :value="template.id">{{ templateOptionLabel(template) }}</option>
-                    </select>
-                    <div class="field-hint">{{ selectedTemplateDescription }}</div>
-                  </div>
-                  <div class="field"><label>分析数量</label><input v-model.number="limit" type="number" min="1" max="20" /></div>
-                </div>
-                <div class="field-grid">
-                  <div class="field">
-                    <label>检索模式</label>
-                    <select v-model="retrievalMode" :disabled="inputMode === 'document_upload'">
-                      <option v-for="option in retrievalModeOptions" :key="option.value" :value="option.value">
-                        {{ option.label }}
-                      </option>
-                    </select>
-                    <div class="field-hint">{{ selectedRetrievalModeDescription }}</div>
-                  </div>
-                  <div class="field">
-                    <label>写作模型</label>
-                    <select
-                      v-model="routing.writerModelId"
-                      :disabled="savingWriterModel || availableWriterModels.length === 0"
-                      @change="updateWriterModel"
-                    >
-                      <option v-for="model in availableWriterModels" :key="model.id" :value="model.id">{{ model.label }}</option>
-                    </select>
-                    <div class="field-hint">{{ selectedWriterModelDescription }}</div>
-                  </div>
-                </div>
-                <button type="button" class="glass-toggle" :class="{ active: autoFillChartData }" @click="autoFillChartData = !autoFillChartData">
-                  <span class="glass-toggle-copy">
-                    <strong>自动补全图表数据</strong>
-                    <small>当检索和抽取结果缺少可视化数值时，允许模型结合上下文自动补齐展示数据。</small>
-                  </span>
-                  <span class="glass-toggle-track">
-                    <span class="glass-toggle-thumb" />
-                  </span>
-                </button>
-                <div class="banner">
-                  当前生效写作模型：{{ effectiveRouting.writerModelLabel ?? (effectiveRouting.writerModelId || "未配置") }}{{ effectiveRouting.writerUsesDemoProvider ? "（Demo Provider）" : "" }}
-                </div>
-                <div v-if="savingWriterModel" class="field-hint">正在同步写作模型到模型设置…</div>
-              </div>
-            </details>
-          </div>
-        </SectionCard>
+      <div v-if="message" class="notice success">{{ message }}</div>
+      <div v-if="error" class="notice error">{{ error }}</div>
 
-        <SectionCard
-          :title="inputMode === 'document_upload' ? '上传材料' : '当前模式说明'"
-          :description="inputMode === 'document_upload' ? '上传文档模式下，先按竞品补充资料，再解析需求。' : '联网搜索模式会先检索公开资料，再自动发现候选竞品。'"
-        >
-          <template #action>
-            <button v-if="inputMode === 'document_upload'" class="button ghost" :disabled="loading === 'upload'" @click="uploadMaterialsForCompetitor">{{ loading === "upload" ? "上传中" : "上传材料" }}</button>
-          </template>
-          <div v-if="inputMode === 'document_upload'" class="form-grid">
-            <div class="field"><label>竞品名称</label><input v-model="uploadDraft.competitorName" placeholder="例如：钉钉 / 飞书 / WPS AI" /></div>
-            <div class="field"><label>选择文件</label><input ref="fileInputRef" type="file" multiple @change="onSelectUploadFiles" /></div>
-            <div class="banner">当前待上传文件数：{{ uploadDraft.files.length }}</div>
-            <div v-if="uploadedMaterials.length" class="list">
-              <div v-for="item in uploadedMaterials" :key="item.id" class="list-item">
+      <div v-if="wizardStep === 'input'" class="create-layout">
+        <section class="form-card">
+          <header class="form-card-header">
+            <h2>第一步：说明你要分析什么</h2>
+            <div class="form-actions">
+              <button type="button" class="outline-action" @click="showAdvanced = !showAdvanced">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7" /><path d="M4 10V3" /><path d="M12 21v-9" /><path d="M12 8V3" /><path d="M20 21v-5" /><path d="M20 12V3" /><path d="M2 14h4" /><path d="M10 8h4" /><path d="M18 16h4" /></svg>
+                {{ showAdvanced ? "收起设置" : "高级设置" }}
+              </button>
+              <button type="button" class="primary-action" :disabled="loading === 'preview'" @click="parseRequirement">
+                {{ loading === "preview" ? "解析中" : "下一步：解析需求" }}
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
+              </button>
+            </div>
+          </header>
+
+          <div class="form-section">
+            <h3>资料来源</h3>
+            <div class="source-grid">
+              <button type="button" class="source-option" :class="{ active: inputMode === 'search' }" @click="inputMode = 'search'">
+                <span class="source-icon blue" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" /><path d="M3.6 9h16.8" /><path d="M3.6 15h16.8" /><path d="M12 3a14 14 0 0 1 0 18" /><path d="M12 3a14 14 0 0 0 0 18" /></svg>
+                </span>
+                <span>
+                  <strong>联网搜索任务</strong>
+                  <small>Agent 自动爬取全网最新信息</small>
+                </span>
+                <svg class="check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+              </button>
+
+              <button type="button" class="source-option" :class="{ active: inputMode === 'document_upload' }" @click="inputMode = 'document_upload'">
+                <span class="source-icon slate" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v5h5" /><path d="M12 12v6" /><path d="m9 15 3-3 3 3" /></svg>
+                </span>
+                <span>
+                  <strong>上传材料任务</strong>
+                  <small>基于你提供的文档进行分析</small>
+                </span>
+                <svg class="check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="inputMode === 'document_upload'" class="upload-panel">
+            <div class="upload-grid">
+              <label>
+                <span>竞品名称</span>
+                <input v-model="uploadDraft.competitorName" placeholder="例如：钉钉 / 飞书 / WPS AI" />
+              </label>
+              <label>
+                <span>选择文件</span>
+                <input ref="fileInputRef" type="file" multiple @change="onSelectUploadFiles" />
+              </label>
+              <button type="button" class="outline-action upload-action" :disabled="loading === 'upload'" @click="uploadMaterialsForCompetitor">
+                {{ loading === "upload" ? "上传中" : "上传材料" }}
+              </button>
+            </div>
+            <p class="upload-meta">当前待上传文件数：{{ uploadDraft.files.length }}</p>
+            <div v-if="uploadedMaterials.length" class="uploaded-list">
+              <div v-for="item in uploadedMaterials" :key="item.id">
                 <strong>{{ item.competitorName }}</strong>
-                <span class="muted">{{ item.fileName }} · {{ formatBytes(item.size) }}</span>
+                <span>{{ item.fileName }} · {{ formatBytes(item.size) }}</span>
               </div>
             </div>
-            <div v-else class="empty">还没有上传材料。</div>
           </div>
-          <div v-else class="list">
-            <div class="list-item">
+
+          <div class="form-section">
+            <h3>{{ inputMode === "document_upload" ? "任务说明" : "分析需求描述" }}</h3>
+            <div class="prompt-box">
+              <textarea
+                v-model="prompt"
+                :placeholder="inputMode === 'document_upload' ? '例如：基于我上传的产品资料，输出一份面向领导汇报的竞品分析报告。' : '例如：分析目前国内 AI 智能体平台的现状，重点对比百度智能云、字节跳动扣子(Coze) 以及 阿里百炼。关注它们的商业模式、底层模型能力以及对开发者的支持程度...'"
+              />
+              <div class="prompt-presets">
+                <button type="button" :class="{ active: templateId === 'tpl-executive-zh' }" @click="applyPromptPreset('executive')">汇报版</button>
+                <button type="button" :class="{ active: templateId === 'tpl-research-zh' }" @click="applyPromptPreset('research')">深度研究版</button>
+                <button type="button" :class="{ active: templateId === 'tpl-brief-zh' }" @click="applyPromptPreset('brief')">简洁版</button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="showAdvanced" class="advanced-card">
+            <div class="advanced-grid">
+              <label>
+                <span>模板</span>
+                <select v-model="templateId">
+                  <option v-for="template in templates" :key="template.id" :value="template.id">{{ templateOptionLabel(template) }}</option>
+                </select>
+                <small>{{ selectedTemplateDescription }}</small>
+              </label>
+              <label>
+                <span>分析数量</span>
+                <input v-model.number="limit" type="number" min="1" max="20" />
+              </label>
+              <label>
+                <span>检索模式</span>
+                <select v-model="retrievalMode" :disabled="inputMode === 'document_upload'">
+                  <option v-for="option in retrievalModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+                <small>{{ selectedRetrievalModeDescription }}</small>
+              </label>
+              <label>
+                <span>写作模型</span>
+                <select v-model="routing.writerModelId" :disabled="savingWriterModel || availableWriterModels.length === 0" @change="updateWriterModel">
+                  <option v-for="model in availableWriterModels" :key="model.id" :value="model.id">{{ model.label }}</option>
+                </select>
+                <small>{{ selectedWriterModelDescription }}</small>
+              </label>
+            </div>
+            <button type="button" class="auto-toggle" :class="{ active: autoFillChartData }" @click="autoFillChartData = !autoFillChartData">
+              <span>
+                <strong>自动补全图表数据</strong>
+                <small>缺少可视化数值时，允许模型结合上下文自动补齐展示数据。</small>
+              </span>
+              <i></i>
+            </button>
+            <p class="model-hint">
+              当前生效写作模型：{{ effectiveRouting.writerModelLabel ?? (effectiveRouting.writerModelId || "未配置") }}{{ effectiveRouting.writerUsesDemoProvider ? "（Demo Provider）" : "" }}
+            </p>
+          </div>
+
+          <div v-if="loading === 'preview'" class="progress-card">
+            <div>
+              <strong>{{ previewCurrentStep }}</strong>
+              <span>{{ previewProgressPercent }}%</span>
+            </div>
+            <p><span :style="{ width: `${previewProgressPercent}%` }"></span></p>
+          </div>
+        </section>
+
+        <aside class="assist-column">
+          <section class="mode-card">
+            <h3>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v-5" /><path d="M12 7h.01" /><path d="M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0Z" /></svg>
+              当前模式说明
+            </h3>
+            <div class="mode-note active">
               <strong>适用场景</strong>
-              <span class="muted">需要快速了解公开市场格局，或还没有沉淀内部材料时使用。</span>
+              <p>{{ inputMode === "document_upload" ? "适合已有竞品资料、访谈纪要或内部研究文档，需要直接生成汇报报告。" : "适合对市场新趋势进行摸排，或对已知竞品进行年度/季度深度对标更新。" }}</p>
             </div>
-            <div class="list-item">
+            <div class="mode-note">
               <strong>执行方式</strong>
-              <span class="muted">系统先检索，再做候选竞品发现、结构化抽取、图表生成和报告写作。</span>
+              <p>{{ inputMode === "document_upload" ? "系统将先抽取上传材料，再由 Analysis Agent 进行结构化摘要与报告写作。" : "系统将启动 Web Search Agent 检索多维数据，再交由 Analysis Agent 进行结构化撰写。" }}</p>
             </div>
-          </div>
-        </SectionCard>
+          </section>
+
+          <section class="tip-card">
+            <h3>小提示</h3>
+            <p>在描述中尽可能提供竞品的官网链接或确切名称，可以显著提升 AI 解析的准确度。</p>
+          </section>
+        </aside>
       </div>
 
-      <SectionCard
-        v-if="wizardStep === 'input' && loading === 'preview'"
-        title="正在解析需求"
-        description="系统正在理解任务目标、补全结构化字段并准备候选竞品。"
-      >
-        <div class="stack">
-          <div class="inline-actions">
-            <span class="status">解析中</span>
-            <span class="muted">{{ previewCurrentStep }}</span>
-            <span class="mono small">{{ previewProgressPercent }}%</span>
-          </div>
-          <div class="progress"><span :style="{ width: `${previewProgressPercent}%` }" /></div>
-        </div>
-      </SectionCard>
-
-      <div v-if="wizardStep === 'review'" class="panel-grid">
-        <SectionCard title="解析结果" description="系统对当前需求的结构化理解。">
-          <template #action>
-            <button class="button ghost" @click="wizardStep = 'input'">返回修改需求</button>
-          </template>
-          <div v-if="preview?.parseResult" class="list">
-            <div v-for="(value, key) in preview.parseResult" :key="key" class="list-item">
+      <div v-if="wizardStep === 'review'" class="review-layout">
+        <section class="form-card">
+          <header class="form-card-header">
+            <h2>第二步：确认竞品名单</h2>
+            <div class="form-actions">
+              <button type="button" class="outline-action" @click="wizardStep = 'input'">返回修改需求</button>
+              <button type="button" class="primary-action" :disabled="loading === 'run'" @click="createAndRunTask">{{ loading === "run" ? "提交中" : "下一步：开始生成" }}</button>
+            </div>
+          </header>
+          <div v-if="preview?.parseResult" class="parse-grid">
+            <div v-for="(value, key) in preview.parseResult" :key="key">
               <strong>{{ key }}</strong>
-              <span class="muted">{{ Array.isArray(value) ? value.join(" / ") : String(value) }}</span>
+              <span>{{ Array.isArray(value) ? value.join(" / ") : String(value) }}</span>
             </div>
           </div>
-          <div v-else class="empty">点击“解析需求”后，这里会展示结构化结果。</div>
-        </SectionCard>
-
-        <SectionCard title="候选竞品" description="可取消候选项，也可以手动补充。">
-          <template #action>
-            <div class="inline-actions">
-              <input v-model="manualCandidate" placeholder="手动补充竞品名称" />
-              <button class="button ghost" @click="addManualCandidate">添加</button>
-              <button class="button" :disabled="loading === 'run'" @click="createAndRunTask">{{ loading === "run" ? "提交中" : "下一步：开始生成" }}</button>
-            </div>
-          </template>
-          <div v-if="candidateDrafts.length" class="stack">
+          <div class="manual-row">
+            <input v-model="manualCandidate" placeholder="手动补充竞品名称" />
+            <button type="button" class="outline-action" @click="addManualCandidate">添加</button>
+          </div>
+          <div v-if="candidateDrafts.length" class="candidate-list">
             <button
               v-for="candidate in candidateDrafts"
               :key="candidate.id"
               type="button"
-              class="glass-toggle compact"
               :class="{ active: candidate.selected }"
               @click="candidate.selected = !candidate.selected"
             >
-              <span class="glass-toggle-copy">
-                <strong>{{ candidate.name }}</strong>
-                <small>{{ candidate.layer }} · 置信度 {{ Math.round(candidate.confidence * 100) }}%{{ candidate.manual ? " · 手动补充" : "" }}</small>
-              </span>
-              <span class="glass-toggle-track">
-                <span class="glass-toggle-thumb" />
-              </span>
+              <strong>{{ candidate.name }}</strong>
+              <span>{{ candidate.layer }} · 置信度 {{ Math.round(candidate.confidence * 100) }}%{{ candidate.manual ? " · 手动补充" : "" }}</span>
             </button>
           </div>
-          <div v-else class="empty">解析完成后，这里会展示候选竞品。</div>
-        </SectionCard>
+          <div v-else class="empty-state">解析完成后，这里会展示候选竞品。</div>
+        </section>
       </div>
 
-      <SectionCard v-if="wizardStep === 'running' || createdTask" title="生成进度" description="任务已经交给后台执行，完成后可进入详情页下载报告。">
-        <div v-if="createdTask" class="list">
-          <div class="list-item"><strong>任务 ID</strong><span class="mono small">{{ createdTask.id }}</span></div>
-          <div class="list-item"><strong>当前状态</strong><span class="status" :class="taskStatusClass(createdTask.status)">{{ formatTaskStatus(createdTask.status) }}</span></div>
-          <div class="list-item"><strong>当前步骤</strong><span class="muted">{{ createdTask.currentStep ?? "-" }}</span></div>
-          <div class="list-item"><strong>进度</strong><span class="muted">{{ createdTask.progressPercent ?? 0 }}%</span></div>
-          <div class="progress"><span :style="{ width: `${createdTask.progressPercent ?? 0}%` }" /></div>
-          <div class="banner">{{ nextTaskHint }}</div>
-          <div class="inline-actions">
-            <RouterLink class="button ghost" :to="`/tasks/${createdTask.id}`">进入任务详情</RouterLink>
-            <RouterLink v-if="createdTask.status === 'completed'" class="button" :to="`/tasks/${createdTask.id}`">下载报告</RouterLink>
-          </div>
+      <section v-if="wizardStep === 'running' || createdTask" class="form-card running-card">
+        <header class="form-card-header">
+          <h2>第三步：生成报告</h2>
+          <RouterLink v-if="createdTask" class="outline-action" :to="`/tasks/${createdTask.id}`">进入任务详情</RouterLink>
+        </header>
+        <div v-if="createdTask" class="run-grid">
+          <div><strong>任务 ID</strong><span>{{ createdTask.id }}</span></div>
+          <div><strong>当前状态</strong><span>{{ formatTaskStatus(createdTask.status) }}</span></div>
+          <div><strong>当前步骤</strong><span>{{ createdTask.currentStep ?? "-" }}</span></div>
+          <div><strong>进度</strong><span>{{ createdTask.progressPercent ?? 0 }}%</span></div>
         </div>
-        <div v-else class="empty">任务创建后，这里会显示运行状态。</div>
-      </SectionCard>
+        <div v-if="createdTask" class="progress-card">
+          <div>
+            <strong>{{ createdTask.status === "completed" ? "报告已生成完成" : createdTask.status === "failed" ? "任务执行失败" : (createdTask.currentStep ?? "准备中") }}</strong>
+            <span>{{ createdTask.progressPercent ?? 0 }}%</span>
+          </div>
+          <p><span :style="{ width: `${createdTask.progressPercent ?? 0}%` }"></span></p>
+        </div>
+        <p v-if="createdTask" class="run-hint">{{ nextTaskHint }}</p>
+        <div v-else class="empty-state">任务创建后，这里会显示运行状态。</div>
+      </section>
     </div>
   </AppShell>
 </template>
@@ -243,10 +247,9 @@ import type {
   WordTemplateDefinition
 } from "@studio/shared";
 import AppShell from "@/components/AppShell.vue";
-import SectionCard from "@/components/SectionCard.vue";
 import { apiFetch } from "@/services/api";
 import { readFileAsBase64 } from "@/utils/files";
-import { formatBytes, formatTaskStatus, taskStatusClass } from "@/utils/format";
+import { formatBytes, formatTaskStatus } from "@/utils/format";
 
 interface PreviewResponse {
   parseResult: RequirementParseResult;
@@ -266,10 +269,10 @@ interface UploadDraft {
 
 const inputMode = ref<TaskInputMode>("search");
 const prompt = ref("帮我分析国内 AI 办公助手赛道的主要竞品，做一份面向领导汇报的报告，重点看功能对比、商业模式和机会点。");
-const templateId = ref("tpl-executive-zh");
+const templateId = ref("tpl-brief-zh");
 const limit = ref(5);
 const retrievalMode = ref<RetrievalMode>("searxng");
-const autoFillChartData = ref(false);
+const autoFillChartData = ref(true);
 const templates = ref<WordTemplateDefinition[]>([]);
 const availableWriterModels = ref<ModelConnectionConfig[]>([]);
 const routing = ref<ModelRoutingConfig>({
@@ -763,3 +766,682 @@ function previewProgressStep(current: number, mode: TaskInputMode) {
   return "正在整理解析结果";
 }
 </script>
+
+<style scoped>
+.create-report-page {
+  display: grid;
+  gap: 26px;
+}
+
+.create-report-page svg {
+  width: 1em;
+  height: 1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.step-tabs {
+  display: flex;
+  gap: 34px;
+  min-height: 38px;
+  align-items: flex-start;
+  margin-top: -8px;
+  padding-left: 2px;
+}
+
+.step-tab {
+  position: relative;
+  min-width: 124px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  background: transparent;
+  color: #95a3b8;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.step-tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -12px;
+  height: 2px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.step-tab span {
+  width: 23px;
+  height: 23px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #e8eef6;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.step-tab.active {
+  color: #2563eb;
+}
+
+.step-tab.active::after {
+  background: #2563eb;
+}
+
+.step-tab.active span,
+.step-tab.done span {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.notice {
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.notice.success {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.notice.error {
+  border: 1px solid #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.create-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 34px;
+  align-items: start;
+}
+
+.form-card,
+.mode-card,
+.tip-card {
+  border: 1px solid #d9e2ef;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.form-card {
+  padding: 34px;
+}
+
+.form-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 34px;
+}
+
+.form-card-header h2 {
+  margin: 0;
+  color: #1d293d;
+  font-size: 19px;
+}
+
+.form-actions {
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.outline-action,
+.primary-action {
+  min-height: 41px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 8px;
+  padding: 0 18px;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.outline-action {
+  border: 1px solid #dbe3ef;
+  background: #ffffff;
+  color: #34445a;
+}
+
+.primary-action {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.primary-action:disabled,
+.outline-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.form-section {
+  display: grid;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.form-section:first-of-type {
+  margin-top: 0;
+}
+
+.form-section h3 {
+  margin: 0;
+  color: #2a3a50;
+  font-size: 15px;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.source-option {
+  min-height: 80px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid #e3eaf3;
+  border-radius: 12px;
+  padding: 18px;
+  background: #ffffff;
+  color: #24344a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.source-option.active {
+  border: 2px solid #2563eb;
+  background: #f8fbff;
+}
+
+.source-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  font-size: 22px;
+}
+
+.source-icon.blue {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.source-icon.slate {
+  background: #eef3f9;
+  color: #61728a;
+}
+
+.source-option strong {
+  display: block;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.source-option small {
+  display: block;
+  margin-top: 4px;
+  color: #6990c7;
+  font-size: 13px;
+}
+
+.check-icon {
+  width: 20px;
+  height: 20px;
+  color: #2563eb;
+  opacity: 0;
+}
+
+.source-option.active .check-icon {
+  opacity: 1;
+}
+
+.upload-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+  border: 1px solid #e3eaf3;
+  border-radius: 12px;
+  padding: 18px;
+  background: #f8fbff;
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.upload-panel label,
+.advanced-grid label {
+  display: grid;
+  gap: 8px;
+}
+
+.upload-panel label span,
+.advanced-grid label span {
+  color: #607086;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.upload-meta {
+  margin: 0;
+  color: #708199;
+  font-size: 13px;
+}
+
+.uploaded-list {
+  display: grid;
+  gap: 8px;
+}
+
+.uploaded-list div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #53657f;
+  font-size: 13px;
+}
+
+.prompt-box {
+  position: relative;
+  border: 1px solid #dce5f0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f8fbff;
+}
+
+.prompt-box textarea {
+  width: 100%;
+  min-height: 204px;
+  display: block;
+  border: 0;
+  border-radius: 0;
+  padding: 18px;
+  background: transparent;
+  box-shadow: none;
+  color: #2b3d55;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.prompt-box textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.prompt-presets {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.prompt-presets button {
+  min-height: 30px;
+  border: 1px solid #dbe3ef;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #53657f;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.prompt-presets button.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.advanced-card {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+  border: 1px solid #e3eaf3;
+  border-radius: 12px;
+  padding: 18px;
+  background: #ffffff;
+}
+
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.advanced-grid small {
+  color: #708199;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.auto-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #e3eaf3;
+  border-radius: 12px;
+  padding: 14px;
+  background: #f8fbff;
+  color: #2a3a50;
+  text-align: left;
+  cursor: pointer;
+}
+
+.auto-toggle span {
+  display: grid;
+  gap: 4px;
+}
+
+.auto-toggle small {
+  color: #708199;
+}
+
+.auto-toggle i {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  flex: 0 0 auto;
+}
+
+.auto-toggle i::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.18s ease;
+}
+
+.auto-toggle.active i {
+  background: #2563eb;
+}
+
+.auto-toggle.active i::after {
+  transform: translateX(20px);
+}
+
+.model-hint {
+  margin: 0;
+  color: #53657f;
+  font-size: 13px;
+}
+
+.progress-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 16px;
+  background: #eff6ff;
+}
+
+.progress-card div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #1d4ed8;
+  font-size: 14px;
+}
+
+.progress-card p {
+  height: 8px;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbeafe;
+}
+
+.progress-card p span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2563eb;
+}
+
+.assist-column {
+  display: grid;
+  gap: 26px;
+}
+
+.mode-card {
+  padding: 26px;
+}
+
+.mode-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 20px;
+  color: #1d293d;
+  font-size: 17px;
+}
+
+.mode-card h3 svg {
+  color: #2563eb;
+}
+
+.mode-note {
+  border-radius: 12px;
+  padding: 18px;
+  background: #f5f7fb;
+}
+
+.mode-note + .mode-note {
+  margin-top: 18px;
+}
+
+.mode-note.active {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+
+.mode-note strong {
+  color: #2563eb;
+  font-size: 14px;
+}
+
+.mode-note p {
+  margin: 10px 0 0;
+  color: #53657f;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.tip-card {
+  position: relative;
+  overflow: hidden;
+  padding: 26px;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.tip-card::after {
+  content: "+";
+  position: absolute;
+  right: -8px;
+  bottom: -42px;
+  color: rgba(255, 255, 255, 0.12);
+  font-size: 160px;
+  font-weight: 800;
+}
+
+.tip-card h3 {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 18px;
+  font-size: 18px;
+}
+
+.tip-card p {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  max-width: 260px;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.review-layout {
+  display: grid;
+}
+
+.parse-grid,
+.run-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.parse-grid div,
+.run-grid div {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e3eaf3;
+  border-radius: 12px;
+  padding: 14px;
+  background: #f8fbff;
+}
+
+.parse-grid strong,
+.run-grid strong {
+  color: #607086;
+  font-size: 12px;
+}
+
+.parse-grid span,
+.run-grid span {
+  color: #1d293d;
+  line-height: 1.6;
+}
+
+.manual-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.candidate-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.candidate-list button {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #e3eaf3;
+  border-radius: 12px;
+  padding: 14px;
+  background: #ffffff;
+  color: #2b3d55;
+  text-align: left;
+  cursor: pointer;
+}
+
+.candidate-list button.active {
+  border-color: #2563eb;
+  background: #f8fbff;
+}
+
+.candidate-list span {
+  color: #708199;
+  font-size: 12px;
+}
+
+.empty-state {
+  border: 1px dashed #d8e3f1;
+  border-radius: 12px;
+  padding: 24px;
+  color: #708199;
+  text-align: center;
+}
+
+.running-card {
+  max-width: 980px;
+}
+
+.run-hint {
+  margin: 8px 0 0;
+  color: #607086;
+  font-size: 13px;
+}
+
+@media (max-width: 1180px) {
+  .create-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .assist-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .form-card {
+    padding: 22px;
+  }
+
+  .form-card-header,
+  .step-tabs {
+    display: grid;
+  }
+
+  .source-grid,
+  .upload-grid,
+  .advanced-grid,
+  .assist-column,
+  .parse-grid,
+  .run-grid,
+  .candidate-list {
+    grid-template-columns: 1fr;
+  }
+
+  .prompt-presets {
+    position: static;
+    padding: 0 14px 14px;
+    flex-wrap: wrap;
+  }
+}
+</style>

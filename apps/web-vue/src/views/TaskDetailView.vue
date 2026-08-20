@@ -242,3 +242,20 @@ function checkpointStageLabel(stage: string) {
   }
 }
 </script>
+
+<style scoped>
+.progress {
+  height: 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  overflow: hidden;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #2563eb;
+  transition: width 0.4s ease-out;
+}
+</style>

@@ -45,7 +45,10 @@
         </SectionCard>
       </div>
 
-      <SectionCard title="模板章节配置" description="支持新增、删改、启停和上下移动。">
+      <SectionCard
+        title="模板章节配置"
+        :description="draft ? `当前编辑：${draft.name} · ${draft.sections.length} 个章节` : '支持新增、删改、启停和上下移动。'"
+      >
         <template #action>
           <div class="inline-actions">
             <button class="button ghost" :disabled="!draft" @click="addSection">新增章节</button>
@@ -91,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import type { ReportSectionTemplate, WordTemplateDefinition } from "@studio/shared";
 import AppShell from "@/components/AppShell.vue";
 import SectionCard from "@/components/SectionCard.vue";
@@ -114,26 +117,31 @@ const selectedTemplate = computed(
 
 onMounted(load);
 
+watch(selectedId, syncDraftFromSelected);
+
 async function load() {
   try {
     const response = await apiFetch<{ items: WordTemplateDefinition[] }>("/api/templates");
     templates.value = response.items;
-    if (!selectedId.value && response.items[0]) {
-      selectedId.value = response.items[0].id;
-      draft.value = structuredClone(response.items[0]);
+    if (!response.items.some((item) => item.id === selectedId.value)) {
+      selectedId.value = response.items[0]?.id ?? "";
     }
+    syncDraftFromSelected();
   } catch (err) {
     error.value = err instanceof Error ? err.message : "加载模板失败";
   }
 }
 
 function selectTemplate(templateId: string) {
-  const template = templates.value.find((item) => item.id === templateId);
-  if (!template) return;
+  if (!templates.value.some((item) => item.id === templateId)) return;
   selectedId.value = templateId;
-  draft.value = structuredClone(template);
   message.value = "";
   error.value = "";
+}
+
+function syncDraftFromSelected() {
+  const template = selectedTemplate.value;
+  draft.value = template ? JSON.parse(JSON.stringify(template)) : null;
 }
 
 function moveSection(index: number, offset: number) {
@@ -169,27 +177,38 @@ function removeSection(index: number) {
     .map((section, currentIndex) => ({ ...section, order: currentIndex + 1 }));
 }
 
-function resetSections() {
-  if (!draft.value || !selectedTemplate.value) return;
-  draft.value.sections = selectedTemplate.value.sections.map((section) => ({ ...section }));
-  message.value = `已还原 ${selectedTemplate.value.name} 的原始章节设置`;
-  error.value = "";
+async function resetSections() {
+  if (!draft.value || !selectedTemplate.value || !selectedId.value) return;
+  try {
+    const saved = await apiFetch<WordTemplateDefinition>(`/api/templates/${selectedId.value}/reset-sections`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    message.value = `已还原 ${saved.name} 的默认章节设置`;
+    await load();
+    selectedId.value = saved.id;
+    draft.value = JSON.parse(JSON.stringify(saved));
+    error.value = "";
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "还原默认章节失败";
+  }
 }
 
 async function saveTemplate() {
-  if (!draft.value) return;
+  if (!draft.value || !selectedId.value || !selectedTemplate.value) return;
   try {
-    const saved = await apiFetch<WordTemplateDefinition>(`/api/templates/${draft.value.id}`, {
+    const saved = await apiFetch<WordTemplateDefinition>(`/api/templates/${selectedId.value}`, {
       method: "PUT",
       body: JSON.stringify({
         ...draft.value,
+        id: selectedId.value,
         sections: draft.value.sections.map((section, index) => normalizeSection(section, index))
       })
     });
     message.value = `模板 ${saved.name} 已保存`;
     await load();
     selectedId.value = saved.id;
-    draft.value = structuredClone(saved);
+    draft.value = JSON.parse(JSON.stringify(saved));
   } catch (err) {
     error.value = err instanceof Error ? err.message : "保存模板失败";
   }

@@ -36,6 +36,17 @@ export class DemoLlmProvider implements LlmProvider {
       }));
     }
 
+    if (input.systemPrompt.includes("资深产品经理和需求分析师")) {
+      return JSON.stringify(buildDemoFeatureList(JSON.parse(input.userPrompt) as {
+        productName: string;
+        productSummary: string;
+        targetUsers: string;
+        domain: string;
+        platforms: string[];
+        outputDepth: string;
+      }));
+    }
+
     if (input.systemPrompt.includes("信息抽取器")) {
       const payload = JSON.parse(input.userPrompt) as {
         candidate: { name: string };
@@ -978,5 +989,130 @@ const buildDemoGanttPlan = (input: {
     ],
     assumptions: ["默认按常见项目推进节奏拆分阶段。"],
     riskNotes: ["若中间评审轮次增加，执行阶段和收口阶段可能被压缩。"]
+  };
+};
+
+const buildDemoFeatureList = (input: {
+  productName: string;
+  productSummary: string;
+  targetUsers: string;
+  domain: string;
+  platforms: string[];
+  outputDepth: string;
+}) => {
+  const modules = [
+    {
+      id: "module-1",
+      name: "客户与基础资料",
+      description: "维护客户、联系人、标签和基础字典，支撑后续业务流转。",
+      order: 1
+    },
+    {
+      id: "module-2",
+      name: "业务过程管理",
+      description: "围绕核心业务动作进行创建、跟进、审批和协同。",
+      order: 2
+    },
+    {
+      id: "module-3",
+      name: "消息与权限",
+      description: "处理角色权限、待办提醒、操作记录和安全边界。",
+      order: 3
+    },
+    {
+      id: "module-4",
+      name: "统计分析",
+      description: "沉淀关键指标、业务看板和导出能力。",
+      order: 4
+    }
+  ];
+
+  const featureNames = [
+    ["客户档案管理", "联系人维护", "客户标签配置"],
+    ["任务创建与分派", "过程记录填报", "审批流转"],
+    ["角色权限矩阵", "消息待办提醒", "操作日志审计"],
+    ["业务数据看板", "明细筛选导出", "指标口径配置"]
+  ];
+
+  return {
+    title: `${input.productName}智能功能清单`,
+    assumptions: [
+      `默认面向${input.targetUsers || "业务人员和管理员"}使用。`,
+      `默认主要承载在${input.platforms?.join("、") || "Web 管理端"}。`,
+      "默认先实现核心业务闭环，再补充自动化和分析能力。"
+    ],
+    reviewNotes: [
+      "字段权限和数据范围需要结合组织架构进一步确认。",
+      "审批节点、消息渠道和导出字段建议在评审会上逐项确认。"
+    ],
+    modules,
+    features: modules.flatMap((module, moduleIndex) =>
+      featureNames[moduleIndex].map((name, featureIndex) => {
+        const id = `feature-${moduleIndex + 1}-${featureIndex + 1}`;
+        return {
+          id,
+          moduleId: module.id,
+          name,
+          description: `围绕${input.productName}的${input.domain || "业务场景"}，支持${name}，保障${input.productSummary}`,
+          userRoles: moduleIndex === 2 ? ["系统管理员", "业务主管"] : ["业务人员", "业务主管"],
+          scenarios: [`${input.targetUsers || "用户"}在日常工作中需要${name}`],
+          preconditions: featureIndex === 0 ? ["用户已登录系统并具备对应权限"] : [`已完成${featureNames[moduleIndex][0]}`],
+          mainFlow: ["进入功能页面", "填写或筛选业务信息", "提交操作并查看系统反馈"],
+          exceptionFlows: ["必填信息缺失时提示补充", "无权限操作时阻止提交并给出说明"],
+          businessRules: ["所有关键操作需要记录操作人和操作时间", "列表查询需要支持按权限过滤可见数据"],
+          priority: moduleIndex < 2 ? (featureIndex === 0 ? "P0" : "P1") : "P2",
+          complexity: featureIndex === 2 ? "medium" : moduleIndex === 1 ? "high" : "low",
+          dependsOn: featureIndex === 0 ? [] : [`feature-${moduleIndex + 1}-1`],
+          fields: [
+            {
+              id: `${id}-field-1`,
+              name: "名称",
+              key: "name",
+              type: "string",
+              required: true,
+              validationRule: "不能为空，长度不超过 50 个字符",
+              displayIn: ["列表页", "详情页"],
+              editableBy: ["业务人员", "业务主管"]
+            },
+            {
+              id: `${id}-field-2`,
+              name: "状态",
+              key: "status",
+              type: "enum",
+              required: true,
+              enumValues: ["待处理", "处理中", "已完成", "已关闭"],
+              displayIn: ["列表页", "详情页"],
+              editableBy: ["业务主管"]
+            },
+            {
+              id: `${id}-field-3`,
+              name: "备注",
+              key: "remark",
+              type: "text",
+              required: false,
+              validationRule: "长度不超过 500 个字符",
+              displayIn: ["详情页"],
+              editableBy: ["业务人员", "业务主管"]
+            }
+          ],
+          acceptanceCriteria: [
+            {
+              id: `${id}-ac-1`,
+              scenario: "成功保存",
+              given: "用户具备该功能操作权限且必填字段完整",
+              when: "用户点击保存",
+              then: "系统保存数据、展示成功提示并刷新列表"
+            },
+            {
+              id: `${id}-ac-2`,
+              scenario: "权限拦截",
+              given: "用户没有该功能操作权限",
+              when: "用户访问或提交该功能",
+              then: "系统阻止操作并展示无权限提示"
+            }
+          ]
+        };
+      })
+    )
   };
 };

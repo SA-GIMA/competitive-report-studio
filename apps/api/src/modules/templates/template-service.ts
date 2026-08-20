@@ -158,6 +158,35 @@ const briefTemplate: WordTemplateDefinition = {
   sections: executiveTemplate.sections.slice(0, 5)
 };
 
+const BUILTIN_DEFAULTS = new Map<string, WordTemplateDefinition>(
+  [executiveTemplate, researchTemplate, briefTemplate].map((t) => [t.id, t])
+);
+
+const defaultSectionsByStyle: Record<string, WordTemplateDefinition["sections"]> = {
+  executive: executiveTemplate.sections,
+  research: researchTemplate.sections,
+  brief: briefTemplate.sections
+};
+
+const isOldFullBriefSections = (sections: WordTemplateDefinition["sections"]) =>
+  sections.length === executiveTemplate.sections.length &&
+  sections.every((section, index) => section.id === executiveTemplate.sections[index]?.id);
+
+const resolveBuiltinSections = (
+  builtin: WordTemplateDefinition,
+  persistedSections: WordTemplateDefinition["sections"] | undefined
+) => {
+  if (!Array.isArray(persistedSections) || persistedSections.length === 0) {
+    return builtin.sections.map((section) => ({ ...section }));
+  }
+
+  if (builtin.id === "tpl-brief-zh" && isOldFullBriefSections(persistedSections)) {
+    return builtin.sections.map((section) => ({ ...section }));
+  }
+
+  return persistedSections.map((section) => ({ ...section }));
+};
+
 export class TemplateService {
   private readonly templates = new Map<string, WordTemplateDefinition>();
   private readonly store = new TemplateStateStore(
@@ -166,14 +195,24 @@ export class TemplateService {
 
   constructor() {
     const persistedTemplates = this.store.load();
-    const defaults = [executiveTemplate, researchTemplate, briefTemplate];
 
-    for (const template of defaults) {
-      this.templates.set(template.id, template);
+    for (const template of BUILTIN_DEFAULTS.values()) {
+      this.templates.set(template.id, structuredClone(template));
     }
 
     for (const template of persistedTemplates) {
-      if (template?.id) {
+      if (!template?.id) continue;
+      const builtin = BUILTIN_DEFAULTS.get(template.id);
+      if (builtin) {
+        this.templates.set(template.id, {
+          ...structuredClone(builtin),
+          ...template,
+          sections: resolveBuiltinSections(builtin, template.sections),
+          placeholders: Array.isArray(template.placeholders) && template.placeholders.length > 0
+            ? template.placeholders
+            : builtin.placeholders
+        });
+      } else {
         this.templates.set(template.id, template);
       }
     }
@@ -213,6 +252,21 @@ export class TemplateService {
     return next;
   }
 
+  resetSections(templateId: string) {
+    const current = this.get(templateId);
+    const builtin = BUILTIN_DEFAULTS.get(templateId);
+    const sections = (builtin?.sections ?? defaultSectionsByStyle[current.style] ?? executiveTemplate.sections)
+      .map((section) => ({ ...section }));
+    const next = {
+      ...current,
+      sections,
+      updatedAt: new Date().toISOString()
+    };
+    this.templates.set(templateId, next);
+    this.persist();
+    return next;
+  }
+
   async upload(input: {
     name: string;
     style: WordTemplateDefinition["style"];
@@ -243,7 +297,7 @@ export class TemplateService {
       style: input.style,
       description: input.description,
       fileKey: filePath,
-      sections: executiveTemplate.sections,
+      sections: (defaultSectionsByStyle[input.style] ?? executiveTemplate.sections).map((s) => ({ ...s })),
       placeholders: executiveTemplate.placeholders,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()

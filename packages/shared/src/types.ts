@@ -426,6 +426,7 @@ export interface GanttPlanningRequest {
   workingDaysMode: GanttWorkingDaysMode;
   planningMode: GanttPlanningMode;
   constraints?: string;
+  modelId?: string;
 }
 
 export interface GanttTaskDraft {
@@ -457,4 +458,80 @@ export interface GanttPlan {
   assumptions: string[];
   riskNotes: string[];
   tasks: GanttTaskItem[];
+}
+
+export type FeatureOutputDepth = "brief" | "standard" | "detailed";
+
+export type FeaturePriority = "P0" | "P1" | "P2" | "P3";
+
+export type FeatureComplexity = "low" | "medium" | "high";
+
+export interface FeatureListGenerationRequest {
+  productName: string;
+  productSummary: string;
+  targetUsers: string;
+  domain: string;
+  platforms: string[];
+  constraints?: string;
+  outputDepth: FeatureOutputDepth;
+  modelId?: string;
+}
+
+export interface FeatureModule {
+  id: string;
+  name: string;
+  description: string;
+  parentId?: string;
+  order: number;
+}
+
+export interface FeatureFieldDefinition {
+  id: string;
+  name: string;
+  key: string;
+  type: string;
+  required: boolean;
+  defaultValue?: string;
+  validationRule?: string;
+  enumValues?: string[];
+  displayIn?: string[];
+  editableBy?: string[];
+  note?: string;
+}
+
+export interface FeatureAcceptanceCriterion {
+  id: string;
+  scenario: string;
+  given: string;
+  when: string;
+  then: string;
+}
+
+export interface FeatureItem {
+  id: string;
+  moduleId: string;
+  name: string;
+  description: string;
+  userRoles: string[];
+  scenarios: string[];
+  preconditions: string[];
+  mainFlow: string[];
+  exceptionFlows: string[];
+  businessRules: string[];
+  priority: FeaturePriority;
+  complexity: FeatureComplexity;
+  dependsOn: string[];
+  fields: FeatureFieldDefinition[];
+  acceptanceCriteria: FeatureAcceptanceCriterion[];
+}
+
+export interface FeatureListPlan extends FeatureListGenerationRequest {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  assumptions: string[];
+  reviewNotes: string[];
+  modules: FeatureModule[];
+  features: FeatureItem[];
 }
